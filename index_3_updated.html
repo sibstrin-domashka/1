@@ -150,7 +150,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
 .dv-card.current-slot{box-shadow:0 0 0 2px var(--today),var(--shadow)}
 .dv-time{flex-shrink:0;width:64px;font-size:.82rem;font-weight:700;color:var(--blue-dark);line-height:1.3}
 .dv-body{flex:1;min-width:0}
-.dv-subj{font-weight:700;font-size:.98rem}
+.dv-subj{font-weight:800;font-size:1.15rem;line-height:1.25}
 .dv-subj.empty{color:var(--text-secondary);font-weight:500}
 .dv-meta{font-size:.82rem;color:var(--gray);margin-top:2px}
 .dv-empty-msg{max-width:900px;margin:30px auto;text-align:center;color:var(--gray)}
@@ -473,6 +473,15 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     d.setHours(0,0,0,0);
     return Math.round((d-today)/86400000);
   }
+  // "Лек./373 ауд." -> {type:"Лекция", number:"373"}; falls back to showing
+  // the raw string as the room number if it doesn't match this shape.
+  function parseRoomType(room){
+    var m=/^(Лек|Пр|Лаб)\.?\s*\/\s*(.+?)\s*ауд\.?$/i.exec((room||"").trim());
+    if(!m) return {type:"", number:(room||"").trim()};
+    var typeMap={"лек":"Лекция","пр":"Практика","лаб":"Лабораторная"};
+    return {type:typeMap[m[1].toLowerCase()]||m[1], number:m[2].trim()};
+  }
+
   function statusClass(part){
     if(!user.name) return "";
     if(part.done && part.done[user.name]) return "done-green";
@@ -898,10 +907,10 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
         if(part.hw||tn) html+='<span class="tag-dz">ДЗ</span>';
         if(tn) html+='<span class="tag-t">'+tk+'/'+tn+'</span>';
         html+='<div class="dv-subj'+(has?'':' empty')+'">'+(part.subject?esc(part.subject):(myIsOwner?'Добавить пару':'—'))+'</div>';
+        var roomInfo=parseRoomType(part.room);
         var metaBits=[];
-        if(part.teacher) metaBits.push(esc(part.teacher));
-        if(part.room) metaBits.push(esc(part.room));
-        if(part.groups) metaBits.push(esc(part.groups));
+        if(roomInfo.number) metaBits.push(esc(roomInfo.number));
+        if(roomInfo.type) metaBits.push(esc(roomInfo.type));
         if(metaBits.length) html+='<div class="dv-meta">'+metaBits.join(' · ')+'</div>';
         html+='</div></div>';
       }
@@ -977,8 +986,8 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
               if(part.hw||(part.topics&&part.topics.length)) html+='<span class="tag-dz">ДЗ</span>';
               html+='<div class="s-subj">'+(part.subject?esc(part.subject):'<span style="color:var(--text-secondary)">—</span>')+'</div>';
               html+='<div class="s-meta">';
-              if(part.groups) html+=esc(part.groups);
-              else if(part.teacher) html+=esc(part.teacher);
+              var spRoom=parseRoomType(part.room);
+              if(spRoom.number) html+=esc(spRoom.number);
               html+='</div></div>';
             }
             html+='</td>';
@@ -993,9 +1002,8 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
             if(tn) html+='<span class="tag-t">'+tk+'/'+tn+'</span>';
             html+='<div class="s-subj">'+(part.subject?esc(part.subject):'<span style="color:var(--text-secondary);font-weight:400">—</span>')+'</div>';
             html+='<div class="s-meta">';
-            if(part.teacher) html+=esc(part.teacher)+'<br>';
-            if(part.room) html+=esc(part.room);
-            if(part.groups) html+=(part.room?'<br>':'')+esc(part.groups);
+            var roomT=parseRoomType(part.room);
+            if(roomT.number) html+=esc(roomT.number);
             html+='</div></td>';
           }
         }
@@ -1429,6 +1437,17 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     var canEditHomework=myIsOwner; // students are view-only until a teacher role exists
     var h="";
     if(canEditSchedule){
+      h+='<div class="fg"><label>Предмет</label><input id="f1" value="'+esc(part.subject)+'" placeholder="Математика"></div>';
+      h+='<div class="row2"><div class="fg"><label>Преподаватель</label><div style="display:flex;gap:8px;align-items:center"><input id="f2" value="'+esc(part.teacher)+'" placeholder="ФИО" style="flex:1"><span id="f2preview" class="avatar-sm" style="width:34px;height:34px">'+(teacherPhoto(part.teacher)?'<img src="'+teacherPhoto(part.teacher)+'">':'')+'</span></div></div>';
+      h+='<div class="fg"><label>Аудитория</label><input id="f3" value="'+esc(part.room)+'" placeholder="Лек./314"></div></div>';
+      h+='<div class="fg"><label>Домашнее задание</label><textarea id="f5" placeholder="Текст задания...">'+esc(part.hw)+'</textarea></div>';
+      h+='<div class="fg"><label>Сдать до (ДД.ММ.ГГГГ)</label><input id="fDue" value="'+esc(part.due)+'" placeholder="15.09.2026"></div>';
+      h+='<div class="topics"><h4>Темы докладов</h4><div id="tl"></div>';
+      h+='<div class="add-t"><input id="nt" placeholder="Новая тема..."><button class="btn-blue btn-sm" id="at">+</button></div></div>';
+      // Split/save/clear are editing tools, not what the viewer came here
+      // for - kept working exactly the same, just moved below the actual
+      // lesson info instead of leading with them.
+      h+='<div class="fg" style="margin-top:18px"><label>Группы / подгруппа</label><input id="f4" value="'+esc(part.groups)+'" placeholder="124(1) гр."></div>';
       h+='<div class="split-toggle">';
       if(slot.split){
         h+='Ячейка разделена на 2 группы. Сейчас редактируешь <b>часть '+(activePart+1)+'</b>. ';
@@ -1437,14 +1456,6 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
         h+='<button class="btn-outline btn-sm" id="splitBtn">Разделить на 2 группы</button>';
       }
       h+='</div>';
-      h+='<div class="fg"><label>Предмет</label><input id="f1" value="'+esc(part.subject)+'" placeholder="Математика"></div>';
-      h+='<div class="row2"><div class="fg"><label>Преподаватель</label><div style="display:flex;gap:8px;align-items:center"><input id="f2" value="'+esc(part.teacher)+'" placeholder="ФИО" style="flex:1"><span id="f2preview" class="avatar-sm" style="width:34px;height:34px">'+(teacherPhoto(part.teacher)?'<img src="'+teacherPhoto(part.teacher)+'">':'')+'</span></div></div>';
-      h+='<div class="fg"><label>Аудитория</label><input id="f3" value="'+esc(part.room)+'" placeholder="Лек./314"></div></div>';
-      h+='<div class="fg"><label>Группы / подгруппа</label><input id="f4" value="'+esc(part.groups)+'" placeholder="124(1) гр."></div>';
-      h+='<div class="fg"><label>Домашнее задание</label><textarea id="f5" placeholder="Текст задания...">'+esc(part.hw)+'</textarea></div>';
-      h+='<div class="fg"><label>Сдать до (ДД.ММ.ГГГГ)</label><input id="fDue" value="'+esc(part.due)+'" placeholder="15.09.2026"></div>';
-      h+='<div class="topics"><h4>Темы докладов</h4><div id="tl"></div>';
-      h+='<div class="add-t"><input id="nt" placeholder="Новая тема..."><button class="btn-blue btn-sm" id="at">+</button></div></div>';
       h+='<div class="acts"><button class="btn-blue" id="sv">Сохранить</button><button class="btn-danger btn-sm" id="cl">Очистить</button></div>';
     } else {
       h+='<div class="info"><div class="l">Когда</div><div class="v">'+day.name+(day.date?' · '+esc(day.date):'')+' · '+time+'</div></div>';
@@ -1455,10 +1466,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
            (tPhoto?'<img src="'+tPhoto+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">':'')+
            '<span>'+esc(part.teacher)+'</span></div></div>';
       }
-      h+='<div class="row2">';
-      if(part.room) h+='<div class="info"><div class="l">Аудитория</div><div class="v">'+esc(part.room)+'</div></div>'; else h+='<div></div>';
-      if(part.groups) h+='<div class="info"><div class="l">Группы</div><div class="v">'+esc(part.groups)+'</div></div>'; else h+='<div></div>';
-      h+='</div>';
+      if(part.room) h+='<div class="info"><div class="l">Аудитория</div><div class="v">'+esc(part.room)+'</div></div>';
 
       if(canEditHomework){
         // Kept for the upcoming teacher role - not reachable right now since
