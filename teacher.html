@@ -6,7 +6,7 @@
 <title>Домашка — Учителям</title>
 <link rel="manifest" href="manifest-teacher.json">
 <meta name="theme-color" content="#051F20">
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -211,8 +211,26 @@ textarea:focus,input:focus{outline:none;border-color:var(--accent)}
 <div class="toast" id="toast"></div>
 
 <script>
+// Показываем любую неожиданную ошибку прямо на экране входа, а не молча -
+// раньше при сбое загрузки библиотеки со внешнего сайта кнопка "Войти"
+// просто ничего не делала, без единой подсказки, что пошло не так.
+window.addEventListener("error", function(e){
+  var m = document.getElementById("authMsg");
+  if(m){
+    m.textContent = "Ошибка загрузки страницы: " + (e.message || "неизвестная ошибка") + ". Обнови страницу (Ctrl+F5).";
+    m.className = "msg err";
+  }
+});
+
 var SUPABASE_URL = "https://wsrrqwvemfliwzsqlkvg.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzcnJxd3ZlbWZsaXd6c3Fsa3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMDc1NDYsImV4cCI6MjEwNDc4MzU0Nn0.mcnzJ6Fh5eTCJSYXQ6rMkBHAbL5JPIC1UId1DlRfuDY";
+if(typeof supabase === "undefined"){
+  window.addEventListener("DOMContentLoaded", function(){
+    var m = document.getElementById("authMsg");
+    if(m){ m.textContent = "Не удалось загрузить библиотеку Supabase. Проверь интернет и обнови страницу (Ctrl+F5)."; m.className = "msg err"; }
+  });
+  throw new Error("supabase js failed to load");
+}
 var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 var DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
