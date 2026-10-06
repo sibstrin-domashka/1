@@ -13,7 +13,6 @@
 :root{
   --bg:#051F20;
   --bg-card:#0B2E2F;
-  --bg-card-2:#0F3A3B;
   --accent:#4FD1A5;
   --accent-dark:#2FAE84;
   --text-primary:#F2FBF8;
@@ -21,7 +20,6 @@
   --border:rgba(255,255,255,.08);
   --danger:#E8605C;
   --success:#4FD1A5;
-  --warn:#E0B13C;
   --radius:16px;
   --shadow:0 8px 24px rgba(0,0,0,.35);
 }
@@ -33,14 +31,16 @@ body{
     linear-gradient(180deg, #051F20 0%, #031617 100%);
   color:var(--text-primary);
   min-height:100vh;
-  padding-bottom:40px;
 }
-h1,h2,h3,.brand{font-family:'Unbounded',sans-serif}
-.screen{display:none;max-width:520px;margin:0 auto;padding:20px 16px}
-.screen.active{display:block}
+.brand{font-family:'Unbounded',sans-serif}
 
-/* ---------- Login ---------- */
-#authScreen{min-height:100vh;display:flex;align-items:center;justify-content:center}
+/* This page shows ONLY the login form - there is no second "screen" to
+   toggle here. The dashboard lives entirely in teacher-app.html, exactly
+   like auth.html (login) and index_3_updated.html (the app) are separate
+   files for students. That split is what makes "hide the login screen"
+   foolproof: there's no sibling screen left in the DOM that a CSS rule
+   could accidentally leave visible underneath it. */
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px 16px}
 .auth-card{
   width:100%;max-width:400px;background:var(--bg-card);
   border:1px solid var(--border);border-radius:var(--radius);
@@ -63,158 +63,34 @@ input:focus{outline:none;border-color:var(--accent)}
 }
 .btn:disabled{opacity:.55}
 .btn:active{background:var(--accent-dark)}
-.btn-outline{
-  background:transparent;border:1.5px solid var(--border);color:var(--text-primary);
-}
 .msg{margin-top:14px;padding:10px 12px;border-radius:10px;font-size:.85rem;display:none;line-height:1.4}
 .msg.err{background:rgba(232,96,92,.12);color:var(--danger);display:block}
 .msg.ok{background:rgba(79,209,165,.12);color:var(--success);display:block}
-
-/* ---------- App header ---------- */
-header{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:18px 16px 8px;max-width:520px;margin:0 auto;
-}
-.chip{
-  display:flex;align-items:center;gap:8px;background:var(--bg-card);
-  border:1px solid var(--border);border-radius:999px;padding:8px 14px;font-size:.85rem;font-weight:600;
-}
-.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
-.logout{color:var(--text-secondary);font-size:.8rem;background:none;border:none;cursor:pointer;text-decoration:underline}
-
-/* ---------- Day nav ---------- */
-.daynav{
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
-  margin:14px 0 18px;
-}
-.nav-btn{
-  width:42px;height:42px;border-radius:12px;border:1px solid var(--border);
-  background:var(--bg-card);color:var(--text-primary);font-size:1.2rem;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-.nav-btn:active{background:var(--bg-card-2)}
-.day-label{text-align:center;flex:1}
-.day-label .dv-day{font-family:'Unbounded',sans-serif;font-weight:700;font-size:1.05rem}
-.day-label .dv-date{color:var(--text-secondary);font-size:.78rem;margin-top:2px}
-
-/* ---------- Lesson cards ---------- */
-.lesson-card{
-  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
-  padding:16px;margin-bottom:12px;box-shadow:var(--shadow);
-}
-.lesson-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-.lesson-time{color:var(--accent);font-weight:700;font-size:.82rem;font-family:'Unbounded',sans-serif}
-.lesson-subject{font-weight:800;font-size:1.1rem;margin-top:4px;line-height:1.25}
-.lesson-meta{color:var(--text-secondary);font-size:.85rem;margin-top:6px}
-.hw-status{
-  display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:600;
-  padding:5px 10px;border-radius:999px;margin-top:10px;
-}
-.hw-status.done{background:rgba(79,209,165,.12);color:var(--success)}
-.hw-status.pending{background:rgba(224,177,60,.12);color:var(--warn)}
-.hw-btn{
-  margin-top:12px;width:100%;padding:11px;border-radius:10px;border:1.5px solid var(--accent);
-  background:transparent;color:var(--accent);font-weight:700;font-size:.9rem;cursor:pointer;
-  font-family:'Unbounded',sans-serif;
-}
-.hw-btn:active{background:rgba(79,209,165,.1)}
-.empty-day{
-  text-align:center;color:var(--text-secondary);padding:50px 20px;font-size:.92rem;line-height:1.5;
-}
-
-/* ---------- Modal ---------- */
-.overlay{
-  display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);
-  align-items:flex-end;justify-content:center;z-index:50;
-}
-.overlay.active{display:flex}
-.modal{
-  width:100%;max-width:520px;background:var(--bg-card);border-radius:20px 20px 0 0;
-  padding:22px 18px 28px;max-height:85vh;overflow-y:auto;
-}
-.modal h3{font-size:1.05rem;margin-bottom:4px}
-.modal .modal-sub{color:var(--text-secondary);font-size:.82rem;margin-bottom:16px}
-textarea{
-  width:100%;min-height:110px;padding:12px 13px;border:1.5px solid var(--border);border-radius:10px;
-  font-size:.95rem;background:rgba(255,255,255,.03);color:var(--text-primary);
-  font-family:inherit;resize:vertical;
-}
-textarea:focus,input:focus{outline:none;border-color:var(--accent)}
-.modal-actions{display:flex;gap:10px;margin-top:18px}
-.modal-actions .btn{margin-top:0}
-
-.toast{
-  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-  background:var(--bg-card-2);color:var(--text-primary);padding:12px 18px;border-radius:12px;
-  font-size:.85rem;box-shadow:var(--shadow);z-index:100;opacity:0;transition:opacity .2s;
-  border:1px solid var(--border);max-width:90vw;text-align:center;
-}
-.toast.show{opacity:1}
+.loading{color:var(--text-secondary);font-size:.9rem;text-align:center}
 </style>
 </head>
 <body>
 
-<!-- ===================== LOGIN ===================== -->
-<div id="authScreen" class="screen active">
-  <div class="auth-card">
-    <div class="brand">👨‍🏫 Домашка</div>
-    <div class="auth-sub">Вход для преподавателей. Введите ФИО и код доступа, который вам прислали на рабочую почту.</div>
+<div id="bootMsg" class="loading">Загрузка...</div>
 
-    <label>Фамилия Имя Отчество</label>
-    <input type="text" id="authName" placeholder="Иванов Иван Иванович">
+<div class="auth-card" id="authCard" style="display:none">
+  <div class="brand">👨‍🏫 Домашка</div>
+  <div class="auth-sub">Вход для преподавателей. Введите ФИО и код доступа, который вам прислали на рабочую почту.</div>
 
-    <label>Код доступа</label>
-    <input type="text" id="authCode" placeholder="Например: A1B2C3" autocapitalize="characters">
+  <label>Фамилия Имя Отчество</label>
+  <input type="text" id="authName" placeholder="Иванов Иван Иванович">
 
-    <button class="btn" id="authBtn">Войти</button>
-    <div class="msg" id="authMsg"></div>
-  </div>
+  <label>Код доступа</label>
+  <input type="text" id="authCode" placeholder="Например: A1B2C3" autocapitalize="characters">
+
+  <button class="btn" id="authBtn">Войти</button>
+  <div class="msg" id="authMsg"></div>
 </div>
-
-<!-- ===================== APP ===================== -->
-<div id="appScreen" class="screen">
-  <header>
-    <div class="chip"><span class="dot"></span><span id="nameChip">—</span></div>
-    <button class="logout" id="logoutBtn">Выйти</button>
-  </header>
-
-  <div style="max-width:520px;margin:0 auto;padding:0 16px">
-    <div class="daynav">
-      <button class="nav-btn" id="dvPrev">←</button>
-      <div class="day-label">
-        <div class="dv-day" id="dvDay">—</div>
-        <div class="dv-date" id="dvDate">—</div>
-      </div>
-      <button class="nav-btn" id="dvNext">→</button>
-    </div>
-
-    <div id="dvList"></div>
-  </div>
-</div>
-
-<!-- ===================== HOMEWORK MODAL ===================== -->
-<div class="overlay" id="hwOverlay">
-  <div class="modal">
-    <h3 id="hwModalTitle">Домашнее задание</h3>
-    <div class="modal-sub" id="hwModalSub">—</div>
-    <label>Задание</label>
-    <textarea id="hwDesc" placeholder="Что нужно сделать к следующему занятию..."></textarea>
-    <label>Сдать до</label>
-    <input type="date" id="hwDue">
-    <div class="modal-actions">
-      <button class="btn btn-outline" id="hwCancelBtn" style="flex:1">Отмена</button>
-      <button class="btn" id="hwSaveBtn" style="flex:2">Сохранить</button>
-    </div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
 
 <script>
-// Показываем любую неожиданную ошибку прямо на экране входа, а не молча -
-// раньше при сбое загрузки библиотеки со внешнего сайта кнопка "Войти"
-// просто ничего не делала, без единой подсказки, что пошло не так.
+// Показываем любую неожиданную ошибку прямо на экране входа, а не молча.
 window.addEventListener("error", function(e){
+  showBoot(false);
   var m = document.getElementById("authMsg");
   if(m){
     m.textContent = "Ошибка загрузки страницы: " + (e.message || "неизвестная ошибка") + ". Обнови страницу (Ctrl+F5).";
@@ -222,10 +98,16 @@ window.addEventListener("error", function(e){
   }
 });
 
+function showBoot(loading){
+  document.getElementById("bootMsg").style.display = loading ? "block" : "none";
+  document.getElementById("authCard").style.display = loading ? "none" : "block";
+}
+
 var SUPABASE_URL = "https://wsrrqwvemfliwzsqlkvg.supabase.co";
 var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzcnJxd3ZlbWZsaXd6c3Fsa3ZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMDc1NDYsImV4cCI6MjEwNDc4MzU0Nn0.mcnzJ6Fh5eTCJSYXQ6rMkBHAbL5JPIC1UId1DlRfuDY";
 if(typeof supabase === "undefined"){
   window.addEventListener("DOMContentLoaded", function(){
+    showBoot(false);
     var m = document.getElementById("authMsg");
     if(m){ m.textContent = "Не удалось загрузить библиотеку Supabase. Проверь интернет и обнови страницу (Ctrl+F5)."; m.className = "msg err"; }
   });
@@ -233,24 +115,6 @@ if(typeof supabase === "undefined"){
 }
 var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-var DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
-var MONTH_NAMES = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"];
-
-var teacherProfile = null;   // { id, full_name }
-var lessonsCache = [];       // all schedule_slots joined with homework, for this teacher
-var dayViewAbsIndex = 0;     // 0..13 across the 2-week span
-var activeLessonId = null;
-
-function showScreen(id){
-  document.querySelectorAll(".screen").forEach(function(s){ s.classList.remove("active"); });
-  document.getElementById(id).classList.add("active");
-}
-function showToast(text){
-  var t = document.getElementById("toast");
-  t.textContent = text;
-  t.classList.add("show");
-  setTimeout(function(){ t.classList.remove("show"); }, 2400);
-}
 function showAuthMsg(text, ok){
   var m = document.getElementById("authMsg");
   m.textContent = text;
@@ -259,6 +123,9 @@ function showAuthMsg(text, ok){
 function clearAuthMsg(){
   var m = document.getElementById("authMsg");
   m.className = "msg"; m.textContent = "";
+}
+function goToApp(){
+  window.location.href = "teacher-app.html";
 }
 
 /* ---------------- Auth ---------------- */
@@ -298,219 +165,29 @@ document.getElementById("authBtn").onclick = async function(){
     }
 
     localStorage.setItem("domashka_teacher_name", name);
-    await loadTeacherProfile();
+    goToApp();
   } catch(e){
     showAuthMsg("Что-то пошло не так: " + e.message);
-  } finally {
     btn.disabled = false; btn.textContent = "Войти";
   }
 };
 
-document.getElementById("logoutBtn").onclick = async function(){
-  await sb.auth.signOut();
-  localStorage.removeItem("domashka_teacher_name");
-  teacherProfile = null;
-  showScreen("authScreen");
-};
-
-async function loadTeacherProfile(){
-  var sess = await sb.auth.getSession();
-  if(!sess.data.session){ showScreen("authScreen"); return; }
-
-  var res = await sb.from("teacher_profiles").select("id,full_name").eq("id", sess.data.session.user.id).maybeSingle();
-  if(res.error || !res.data){
-    showScreen("authScreen");
-    return;
-  }
-  teacherProfile = res.data;
-  document.getElementById("nameChip").textContent = teacherProfile.full_name;
-  showScreen("appScreen");
-  dayViewAbsIndex = todayAbsIndex();
-  await loadLessons();
-  renderDay();
-}
-
-/* ---------------- Day math ---------------- */
-
-function weekAndDayFromAbs(abs){
-  var week = abs < 6 ? 1 : 2;
-  var day = abs % 6; // 0..5 = Mon..Sat
-  return { week: week, day: day };
-}
-
-function todayAbsIndex(){
-  // Try to match a real lesson_date from the loaded cache first.
-  var todayStr = new Date().toISOString().slice(0,10);
-  for(var i = 0; i < lessonsCache.length; i++){
-    if(lessonsCache[i].lesson_date === todayStr){
-      return weekDayToAbs(lessonsCache[i].week_number, lessonsCache[i].day_index);
-    }
-  }
-  // Fallback: plain weekday math, Sunday -> Monday of current week.
-  var jsDay = new Date().getDay(); // 0=Sun..6=Sat
-  var dayIndex = jsDay === 0 ? 0 : jsDay - 1;
-  if(dayIndex > 5) dayIndex = 5;
-  return weekDayToAbs(1, dayIndex);
-}
-function weekDayToAbs(week, day){
-  return (week === 2 ? 6 : 0) + day;
-}
-
-function renderDayLabel(){
-  var wd = weekAndDayFromAbs(dayViewAbsIndex);
-  document.getElementById("dvDay").textContent =
-    DAY_NAMES[wd.day] + " · " + wd.week + " нед.";
-
-  var match = lessonsCache.find(function(l){
-    return l.week_number === wd.week && l.day_index === wd.day && l.lesson_date;
-  });
-  if(match){
-    var d = new Date(match.lesson_date + "T00:00:00");
-    document.getElementById("dvDate").textContent = d.getDate() + " " + MONTH_NAMES[d.getMonth()];
-  } else {
-    document.getElementById("dvDate").textContent = "";
-  }
-}
-
-document.getElementById("dvPrev").onclick = function(){
-  dayViewAbsIndex = (dayViewAbsIndex + 13) % 14;
-  renderDay();
-};
-document.getElementById("dvNext").onclick = function(){
-  dayViewAbsIndex = (dayViewAbsIndex + 1) % 14;
-  renderDay();
-};
-
-/* ---------------- Lessons ---------------- */
-
-async function loadLessons(){
-  // RLS (is_slot_mine) restricts this to the signed-in teacher's own lessons
-  // across every group they teach, so no explicit teacher filter is needed.
-  var res = await sb
-    .from("schedule_slots")
-    .select("id,group_id,week_number,day_index,slot_index,lesson_date,subject,room,groups_label,groups(name),homework(id,description,due_date)")
-    .order("week_number").order("day_index").order("slot_index");
-
-  if(res.error){
-    showToast("Не получилось загрузить расписание: " + res.error.message);
-    lessonsCache = [];
-    return;
-  }
-  lessonsCache = res.data || [];
-}
-
-function renderDay(){
-  renderDayLabel();
-  var wd = weekAndDayFromAbs(dayViewAbsIndex);
-  var list = lessonsCache.filter(function(l){
-    return l.week_number === wd.week && l.day_index === wd.day;
-  }).sort(function(a,b){ return a.slot_index - b.slot_index; });
-
-  var wrap = document.getElementById("dvList");
-  wrap.innerHTML = "";
-
-  if(!list.length){
-    wrap.innerHTML = '<div class="empty-day">В этот день занятий нет.</div>';
-    return;
-  }
-
-  list.forEach(function(l){
-    var card = document.createElement("div");
-    card.className = "lesson-card";
-
-    var hw = Array.isArray(l.homework) ? l.homework[0] : l.homework;
-    var hasHw = hw && hw.description && hw.description.trim().length > 0;
-    var groupLabel = l.groups_label || (l.groups && l.groups.name) || "Группа";
-    var timeLabel = "Пара " + (l.slot_index + 1);
-
-    card.innerHTML =
-      '<div class="lesson-top">' +
-        '<div>' +
-          '<div class="lesson-time">' + timeLabel + '</div>' +
-          '<div class="lesson-subject">' + escapeHtml(l.subject || "Предмет") + '</div>' +
-          '<div class="lesson-meta">' + escapeHtml(groupLabel) + (l.room ? ' · ' + escapeHtml(l.room) : '') + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="hw-status ' + (hasHw ? "done" : "pending") + '">' +
-        (hasHw ? "✓ Задание добавлено" : "Задание ещё не добавлено") +
-      '</div>' +
-      '<button class="hw-btn" data-id="' + l.id + '">' + (hasHw ? "Изменить задание" : "Добавить задание") + '</button>';
-
-    card.querySelector(".hw-btn").onclick = function(){ openHwModal(l); };
-    wrap.appendChild(card);
-  });
-}
-
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, function(c){
-    return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
-  });
-}
-
-/* ---------------- Homework modal ---------------- */
-
-function openHwModal(l){
-  activeLessonId = l.id;
-  var hw = Array.isArray(l.homework) ? l.homework[0] : l.homework;
-  var groupLabel = l.groups_label || (l.groups && l.groups.name) || "Группа";
-
-  document.getElementById("hwModalTitle").textContent = l.subject || "Домашнее задание";
-  document.getElementById("hwModalSub").textContent = groupLabel + (l.room ? " · " + l.room : "");
-  document.getElementById("hwDesc").value = hw && hw.description ? hw.description : "";
-  document.getElementById("hwDue").value = hw && hw.due_date ? hw.due_date : "";
-
-  document.getElementById("hwOverlay").classList.add("active");
-}
-document.getElementById("hwCancelBtn").onclick = function(){
-  document.getElementById("hwOverlay").classList.remove("active");
-};
-
-document.getElementById("hwSaveBtn").onclick = async function(){
-  if(!activeLessonId) return;
-  var btn = document.getElementById("hwSaveBtn");
-  btn.disabled = true; btn.textContent = "Сохраняем...";
-
-  var desc = document.getElementById("hwDesc").value.trim();
-  var due = document.getElementById("hwDue").value || null;
-
-  try{
-    var existing = await sb.from("homework").select("id").eq("schedule_slot_id", activeLessonId).maybeSingle();
-
-    var res;
-    if(existing.data){
-      res = await sb.from("homework").update({ description: desc, due_date: due }).eq("id", existing.data.id);
-    } else {
-      res = await sb.from("homework").insert({ schedule_slot_id: activeLessonId, description: desc, due_date: due });
-    }
-
-    if(res.error){
-      showToast("Не сохранилось: " + res.error.message);
-      return;
-    }
-
-    document.getElementById("hwOverlay").classList.remove("active");
-    showToast("Задание сохранено");
-    await loadLessons();
-    renderDay();
-  } catch(e){
-    showToast("Ошибка: " + e.message);
-  } finally {
-    btn.disabled = false; btn.textContent = "Сохранить";
-  }
-};
-
-/* ---------------- Boot ---------------- */
+/* ---------------- Boot: already logged in? skip straight to the app ---------------- */
 
 (async function(){
-  var sess = await sb.auth.getSession();
-  if(sess.data.session){
-    var prof = await sb.from("teacher_profiles").select("id,full_name").eq("id", sess.data.session.user.id).maybeSingle();
-    if(prof.data){
-      await loadTeacherProfile();
-      return;
+  try{
+    var sess = await sb.auth.getSession();
+    if(sess.data.session){
+      var prof = await sb.from("teacher_profiles").select("id").eq("id", sess.data.session.user.id).maybeSingle();
+      if(prof.data){
+        goToApp();
+        return;
+      }
     }
+  } catch(e){
+    // Ignore - just fall through to showing the login form.
   }
-  showScreen("authScreen");
+  showBoot(false);
 })();
 </script>
 </body>
