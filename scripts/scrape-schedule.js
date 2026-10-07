@@ -33,27 +33,55 @@ const TIMES = [
 ];
 const DAY_WORDS = { "пн": 0, "понедельник": 0, "вт": 1, "вторник": 1, "ср": 2, "среда": 2, "чт": 3, "четверг": 3, "пт": 4, "пятница": 4, "сб": 5, "суббота": 5 };
 
-// Real site format (confirmed from a live debug dump): ONE line per cell,
-// hyphen-delimited: "<groups> гр.-<subject>-<teacher>-<room>", e.g.
-// "121, 122, 124, 128 гр.-Физика-Глазкова Л. В.-Лек./373 ауд."
-// Splitting from both ends (groups first, then room/teacher last) instead
-// of assuming exactly 4 parts means a subject that happens to contain its
-// own hyphen (e.g. "Научно-исследовательская работа") still lands whole
-// in `subject`, not chopped up.
+// The site has shipped two cell formats so far:
+//   old: one hyphen-delimited line  "121, 128 гр.-Физика-Глазкова Л. В.-Лек./373 ауд."
+//   new: separate lines, no hyphens  "121, 128 гр." / "Физика" / "Глазкова Л. В." / "Лек./373 ауд."
+// Splitting on hyphens silently broke on the new format (the whole cell
+// landed in `subject`, teacher stayed empty). Instead we anchor on the two
+// things that never change: the groups end with "гр.", and the teacher is
+// "Фамилия И. О." - the only place initials appear. Subject is whatever sits
+// between them, room is whatever follows the teacher. A hyphenated subject
+// ("Научно-исследовательская работа") and a hyphenated surname both survive.
+var TEACHER_RE = /([А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?)\s+([А-ЯЁ])\.\s*([А-ЯЁ])\.?/;
+var SEP_RE = /^[\s\-\u2013\u2014]+|[\s\-\u2013\u2014]+$/g;
+
 function classifyLines(lines) {
   var out = { groups: "", subject: "", teacher: "", room: "" };
-  var text = lines.join(" ").trim();
+  var text = lines.join(" ").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
   if (!text) return out;
-  var parts = text.split("-").map(function (p) { return p.trim(); }).filter(function (p) { return p.length; });
-  if (parts.length >= 4) {
-    out.groups = parts[0];
-    out.room = parts[parts.length - 1];
-    out.teacher = parts[parts.length - 2];
-    out.subject = parts.slice(1, parts.length - 2).join("-");
-  } else if (parts.length > 0) {
-    // Doesn't match the expected 4-part shape - keep everything as the
-    // subject rather than silently dropping a real (if unusual) cell.
-    out.subject = parts.join("-");
+
+  // Old single-line format: hyphens are the separators, split from both ends.
+  if (/гр\.\s*-/.test(text)) {
+    var parts = text.split("-").map(function (p) { return p.trim(); }).filter(function (p) { return p.length; });
+    if (parts.length >= 4) {
+      out.groups = parts[0];
+      out.room = parts[parts.length - 1];
+      out.teacher = parts[parts.length - 2];
+      out.subject = parts.slice(1, parts.length - 2).join("-");
+      var tm = out.teacher.match(TEACHER_RE);
+      if (tm) out.teacher = tm[1] + " " + tm[2] + ". " + tm[3] + ".";
+      return out;
+    }
+  }
+
+  var rest = text;
+  var g = rest.match(/^([0-9(),\s]+гр\.)/);
+  if (g) {
+    out.groups = g[1].trim();
+    rest = rest.slice(g[0].length);
+  }
+
+  var m = rest.match(TEACHER_RE);
+  if (m) {
+    out.subject = rest.slice(0, m.index).replace(SEP_RE, "");
+    // Always store as "Фамилия И. О." so the same person is never saved twice
+    // under slightly different spellings ("К. Н" vs "К.Н." vs "К. Н.").
+    out.teacher = m[1] + " " + m[2] + ". " + m[3] + ".";
+    out.room = rest.slice(m.index + m[0].length).replace(SEP_RE, "");
+  } else {
+    // No recognisable teacher - keep the text as the subject rather than
+    // silently dropping a real (if unusual) cell.
+    out.subject = rest.replace(SEP_RE, "");
   }
   return out;
 }
