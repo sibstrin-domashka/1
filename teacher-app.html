@@ -121,6 +121,39 @@ textarea:focus,input:focus{outline:none;border-color:var(--accent)}
 .btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text-primary)}
 .modal-actions{display:flex;gap:10px;margin-top:18px}
 
+/* ---------- View tabs ---------- */
+.tabs{display:flex;gap:8px;max-width:520px;margin:6px auto 0;padding:0 16px}
+.tab{
+  flex:1;padding:10px;border-radius:999px;border:1.5px solid var(--border);background:var(--bg-card);
+  color:var(--text-secondary);font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Unbounded',sans-serif;
+}
+.tab.on{background:var(--accent);border-color:var(--accent);color:#052421}
+
+/* ---------- Two-week table (same layout as the students' table) ---------- */
+#weeksView{max-width:1100px;margin:16px auto 0;padding:0 16px}
+.week-title{font-family:'Unbounded',sans-serif;font-weight:700;font-size:1rem;margin:18px 0 10px;display:flex;align-items:center;gap:10px}
+.week-title:first-child{margin-top:0}
+.week-title .now{font-family:'Golos Text',sans-serif;font-size:.72rem;font-weight:700;color:#052421;background:#E08A3C;border-radius:999px;padding:3px 9px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);box-shadow:var(--shadow)}
+table{width:100%;border-collapse:collapse;min-width:760px;table-layout:fixed}
+th{background:var(--bg-card-2);color:var(--accent);font-size:.72rem;font-weight:600;padding:10px 2px;text-align:center;white-space:nowrap;border-right:1px solid var(--border)}
+th.left{min-width:64px;width:64px}
+td{border:1px solid var(--border);vertical-align:top;padding:0}
+td.day{background:var(--bg-card-2);text-align:center;padding:8px 2px;font-weight:700;font-size:.85rem;min-width:64px;width:64px}
+td.day .d-date{display:block;font-weight:400;font-size:.68rem;color:var(--text-secondary);margin-top:2px}
+td.slot{height:84px;min-width:96px;padding:5px;cursor:default}
+td.slot.has{background:rgba(79,209,165,.07);cursor:pointer}
+td.slot.has:hover{background:rgba(79,209,165,.13)}
+td.slot .s-grp{font-weight:700;font-size:.78rem;line-height:1.25}
+td.slot .s-subj{font-size:.7rem;color:var(--text-secondary);margin-top:2px;line-height:1.2}
+td.slot .s-room{font-size:.68rem;color:var(--text-secondary);margin-top:2px}
+td.slot .tag-dz{display:inline-block;font-size:.6rem;font-weight:800;background:var(--success);color:#052421;border-radius:4px;padding:1px 4px;margin-bottom:3px}
+td.slot .part + .part{border-top:1px dashed var(--border);margin-top:4px;padding-top:4px}
+th.current-slot{background:#E08A3C;color:#052421}
+td.day.current-day{background:rgba(224,138,60,.16);border-left:3px solid #E08A3C}
+td.slot.current-day{background:rgba(224,138,60,.08)}
+td.slot.current-slot{box-shadow:inset 0 0 0 2px #E08A3C}
+
 .toast{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
   background:var(--bg-card-2);color:var(--text-primary);padding:12px 18px;border-radius:12px;
@@ -140,7 +173,12 @@ textarea:focus,input:focus{outline:none;border-color:var(--accent)}
     <button class="logout" id="logoutBtn">Выйти</button>
   </header>
 
-  <div style="max-width:520px;margin:0 auto;padding:0 16px">
+  <div class="tabs">
+    <button class="tab on" id="tabDay">День</button>
+    <button class="tab" id="tabWeeks">2 недели</button>
+  </div>
+
+  <div id="dayView" style="max-width:520px;margin:0 auto;padding:0 16px">
     <div class="daynav">
       <button class="nav-btn" id="dvPrev">←</button>
       <div class="day-label">
@@ -152,6 +190,8 @@ textarea:focus,input:focus{outline:none;border-color:var(--accent)}
 
     <div id="dvList"></div>
   </div>
+
+  <div id="weeksView" style="display:none"></div>
 </div>
 
 <!-- ===================== HOMEWORK MODAL ===================== -->
@@ -187,6 +227,9 @@ var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 var DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
 var MONTH_NAMES = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"];
+var DAY_SHORT = ["Пн","Вт","Ср","Чт","Пт","Сб"];
+var TIMES = ["08:30–10:00","10:15–11:45","12:00–13:30","14:10–15:35","15:45–17:10","17:20–18:45","18:50–20:15","20:20–21:50"];
+var currentView = "day";
 
 var teacherProfile = null;   // { id, full_name }
 var lessonsCache = [];       // all schedule_slots joined with homework, for this teacher
@@ -219,7 +262,8 @@ async function loadTeacherProfile(){
 
   await loadLessons();
   dayViewAbsIndex = todayAbsIndex();   // after loading, so real lesson dates can be matched
-  renderDay();
+  try{ if(localStorage.getItem("domashka_teacher_view") === "weeks") currentView = "weeks"; }catch(e){}
+  setView(currentView);
 }
 
 document.getElementById("logoutBtn").onclick = async function(){
@@ -241,9 +285,10 @@ function todayAbsIndex(){
   // Try to match a real lesson_date from the loaded cache first.
   var now = new Date();
   var todayStr = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0") + "-" + String(now.getDate()).padStart(2,"0");
-  for(var i = 0; i < lessonsCache.length; i++){
-    if(lessonsCache[i].lesson_date === todayStr){
-      return weekDayToAbs(lessonsCache[i].week_number, lessonsCache[i].day_index);
+  for(var w = 1; w <= 2; w++){
+    for(var dd = 0; dd < 6; dd++){
+      var dt = dateFor(w, dd);
+      if(dt && isoLocal(dt) === todayStr) return weekDayToAbs(w, dd);
     }
   }
   // Fallback: plain weekday math, Sunday -> Monday of current week.
@@ -256,20 +301,31 @@ function weekDayToAbs(week, day){
   return (week === 2 ? 6 : 0) + day;
 }
 
+function isoLocal(d){
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+// Real calendar date of (week, day), counted from any lesson of that same
+// week that has a date (the site's two weeks can be in either order, so we
+// never guess across weeks).
+function dateFor(week, day){
+  for(var i = 0; i < lessonsCache.length; i++){
+    var l = lessonsCache[i];
+    if(l.week_number === week && l.lesson_date){
+      var d = new Date(l.lesson_date + "T00:00:00");
+      d.setDate(d.getDate() - l.day_index + day);
+      return d;
+    }
+  }
+  return null;
+}
+function shortDate(d){ return d ? d.getDate() + " " + MONTH_NAMES[d.getMonth()] : ""; }
+
 function renderDayLabel(){
   var wd = weekAndDayFromAbs(dayViewAbsIndex);
   document.getElementById("dvDay").textContent =
     DAY_NAMES[wd.day] + " · " + wd.week + " нед.";
 
-  var match = lessonsCache.find(function(l){
-    return l.week_number === wd.week && l.day_index === wd.day && l.lesson_date;
-  });
-  if(match){
-    var d = new Date(match.lesson_date + "T00:00:00");
-    document.getElementById("dvDate").textContent = d.getDate() + " " + MONTH_NAMES[d.getMonth()];
-  } else {
-    document.getElementById("dvDate").textContent = "";
-  }
+  document.getElementById("dvDate").textContent = shortDate(dateFor(wd.week, wd.day));
 }
 
 document.getElementById("dvPrev").onclick = function(){
@@ -367,6 +423,103 @@ function renderDay(){
   });
 }
 
+/* ---------------- View switch: one day / two-week table ---------------- */
+
+function setView(v){
+  currentView = v;
+  try{ localStorage.setItem("domashka_teacher_view", v); }catch(e){}
+  document.getElementById("tabDay").classList.toggle("on", v === "day");
+  document.getElementById("tabWeeks").classList.toggle("on", v === "weeks");
+  document.getElementById("dayView").style.display = v === "day" ? "block" : "none";
+  document.getElementById("weeksView").style.display = v === "weeks" ? "block" : "none";
+  renderAll();
+}
+document.getElementById("tabDay").onclick = function(){ setView("day"); };
+document.getElementById("tabWeeks").onclick = function(){ setView("weeks"); };
+
+function renderAll(){
+  if(currentView === "weeks") renderWeeks(); else renderDay();
+}
+
+// Index of the lesson slot happening right now (or -1).
+function currentSlotIndex(){
+  var now = new Date();
+  var mins = now.getHours() * 60 + now.getMinutes();
+  for(var i = 0; i < TIMES.length; i++){
+    var m = TIMES[i].match(/(\d+):(\d+)\D+(\d+):(\d+)/);
+    var from = +m[1] * 60 + +m[2], to = +m[3] * 60 + +m[4];
+    if(mins >= from && mins <= to) return i;
+  }
+  return -1;
+}
+
+function renderWeeks(){
+  var todayAbs = todayAbsIndex();
+  var todayWD = weekAndDayFromAbs(todayAbs);
+  var todayIsReal = false;
+  var nowStr = isoLocal(new Date());
+  var tdt = dateFor(todayWD.week, todayWD.day);
+  if(tdt && isoLocal(tdt) === nowStr) todayIsReal = true;
+  var curSlot = todayIsReal ? currentSlotIndex() : -1;
+
+  var html = "";
+  for(var w = 1; w <= 2; w++){
+    var isCurWeek = todayIsReal && todayWD.week === w;
+    var mon = dateFor(w, 0), sat = dateFor(w, 5);
+    html += '<div class="week-title">' + w + ' неделя' +
+      (mon && sat ? ' <span style="font-family:Golos Text,sans-serif;font-weight:500;font-size:.8rem;color:var(--text-secondary)">' + shortDate(mon) + ' – ' + shortDate(sat) + '</span>' : '') +
+      (isCurWeek ? ' <span class="now">сейчас</span>' : '') + '</div>';
+    html += '<div class="scroll"><table><thead><tr><th class="left">День</th>';
+    for(var t = 0; t < TIMES.length; t++){
+      html += '<th class="' + (isCurWeek && t === curSlot ? 'current-slot' : '') + '">' + TIMES[t] + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    for(var d = 0; d < 6; d++){
+      var isToday = isCurWeek && todayWD.day === d;
+      var dt = dateFor(w, d);
+      html += '<tr><td class="day' + (isToday ? ' current-day' : '') + '">' + DAY_SHORT[d] +
+        (dt ? '<span class="d-date">' + dt.getDate() + '.' + String(dt.getMonth()+1).padStart(2,"0") + '</span>' : '') + '</td>';
+
+      var dayCards = mergeLessons(lessonsCache.filter(function(l){ return l.week_number === w && l.day_index === d; }));
+      for(var t2 = 0; t2 < TIMES.length; t2++){
+        var cards = dayCards.filter(function(c){ return c.slot_index === t2; });
+        var cls = "slot" + (cards.length ? " has" : "") + (isToday ? " current-day" : "") + (isToday && t2 === curSlot ? " current-slot" : "");
+        html += '<td class="' + cls + '" data-w="' + w + '" data-d="' + d + '" data-t="' + t2 + '">';
+        cards.forEach(function(c, ci){
+          html += '<div class="part" data-ci="' + ci + '">' +
+            (c.hw ? '<span class="tag-dz">ДЗ</span>' : '') +
+            '<div class="s-grp">' + escapeHtml(c.groupLabel) + '</div>' +
+            '<div class="s-subj">' + escapeHtml(c.subject || "") + '</div>' +
+            (c.room ? '<div class="s-room">' + escapeHtml(c.room) + '</div>' : '') +
+          '</div>';
+        });
+        html += '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  if(!lessonsCache.length){
+    html = '<div class="empty-day">Расписание пока не загружено.</div>';
+  }
+
+  var wrap = document.getElementById("weeksView");
+  wrap.innerHTML = html;
+
+  // Click a lesson -> same homework window as in the day view.
+  Array.prototype.forEach.call(wrap.querySelectorAll("td.slot.has .part"), function(el){
+    el.onclick = function(){
+      var td = el.closest("td");
+      var w = +td.getAttribute("data-w"), d = +td.getAttribute("data-d"), t = +td.getAttribute("data-t");
+      var cards = mergeLessons(lessonsCache.filter(function(l){ return l.week_number === w && l.day_index === d; }))
+        .filter(function(c){ return c.slot_index === t; });
+      var c = cards[+el.getAttribute("data-ci")];
+      if(c) openHwModal(c);
+    };
+  });
+}
+
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, function(c){
     return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
@@ -411,7 +564,7 @@ document.getElementById("hwSaveBtn").onclick = async function(){
     document.getElementById("hwOverlay").classList.remove("active");
     showToast(rows.length > 1 ? "Задание сохранено для " + rows.length + " групп" : "Задание сохранено");
     await loadLessons();
-    renderDay();
+    renderAll();
   } catch(e){
     showToast("Ошибка: " + e.message);
   } finally {
