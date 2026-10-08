@@ -43,15 +43,15 @@ const RUCAPTCHA_HOST = "https://rucaptcha.com";
 // Scraping every lecturer's full 2-week table is a lot of page loads - cap
 // it per run (env-overridable) so a first test run doesn't take hours.
 const MAX_LECTURERS_PER_RUN = parseInt(process.env.MAX_LECTURERS_PER_RUN || "9999", 10);
-// GROUPS MODE (used by update-schedule.yml): don't touch the database at all.
-// Just open the timetable of every teacher who has an access code in
-// teacher_roster (i.e. the app's own teachers), note every student group
-// that appears in it, and write those group numbers to lecturer-groups.txt.
-// The group scraper then scrapes each of those groups with its proven
-// parser - so a teacher automatically sees lessons in ALL their groups,
-// and adding a teacher to teacher_roster is the only step ever needed.
-const GROUPS_MODE = process.env.LECTURER_GROUPS_MODE === "1";
-const GROUPS_OUT_FILE = path.join(__dirname, "..", "lecturer-groups.txt");
+// APP-TEACHERS MODE (used by update-schedule.yml): for every teacher who
+// has an access code in teacher_roster, open THEIR OWN timetable once and
+// save every lesson of theirs straight into schedule_slots - one page, one
+// captcha per teacher, no matter how many groups they teach.
+// Groups listed in SKIP_GROUPS (default "128") are left alone: those are
+// scraped in full by scrape-schedule.js, which also sees subgroup splits.
+// Does NOT touch teacher_roster (no new codes are generated).
+const GROUPS_MODE = process.env.LECTURER_APP_MODE === "1";
+const SKIP_GROUPS = (process.env.SKIP_GROUPS || "128").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
 
 // "Валиева Елена Николаевна" / "Валиева Е. Н." / "Валиева Е.Н." -> "валиеваен"
 function nameKey(txt) {
@@ -67,7 +67,7 @@ function nameKey(txt) {
 function groupsInCell(text) {
   var out = [];
   var clean = String(text || "").replace(/\(\d+\)/g, "");
-  var re = /((?:\d{2,4}\s*,\s*)*\d{2,4})\s*гр/g;
+  var re = /((?:\d{2,4}[а-яё]?\s*,\s*)*\d{2,4}[а-яё]?)\s*гр/gi;
   var m;
   while ((m = re.exec(clean))) {
     m[1].split(",").forEach(function (n) { n = n.trim(); if (n && out.indexOf(n) === -1) out.push(n); });
@@ -84,16 +84,70 @@ const DAY_WORDS = { "пн": 0, "понедельник": 0, "вт": 1, "втор
 // A lecturer's cell shows which GROUP the lesson is for instead of which
 // teacher (that's a given - it's THEIR page). Otherwise the same shape as
 // the group view: a room/audience line, a subject line, and a groups line.
+// A lecturer's cell says which GROUP the lesson is for (no teacher - it's
+// their page). Same two layouts as the group view: one line, or several.
+//   "121, 122, 124, 128 гр. История России Лек./306 ауд."
+//   "128(1) гр." / "История России" / "Пр./217 ауд."
+//   "121, 128 гр.-История России-Лек./306 ауд."   (old hyphen layout)
 function classifyLecturerCell(lines) {
   var out = { groups: "", subject: "", room: "" };
-  lines.forEach(function (raw) {
-    var l = raw.trim();
-    if (!l) return;
-    if (/^[\d\s,()]+гр\.?$/i.test(l) && !out.groups) { out.groups = l; return; }
-    if ((/^(лек|пр|лаб)\.?\s*\//i.test(l) || /ауд\.?$/i.test(l)) && !out.room) { out.room = l; return; }
-    out.subject = out.subject ? out.subject + " " + l : l;
-  });
+  var text = lines.join(" ").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return out;
+  var SEP = /^[\s\-\u2013\u2014]+|[\s\-\u2013\u2014]+$/g;
+  var g = text.match(/^((?:\d{2,4}[а-яё]?(?:\(\d+\))?\s*,\s*)*\d{2,4}[а-яё]?(?:\(\d+\))?\s*гр\.?)/i);
+  var rest = text;
+  if (g) { out.groups = g[1].trim(); rest = text.slice(g[0].length); }
+  var r = rest.match(/(?:^|[\s\-\u2013\u2014])((?:Лек|Пр|Лаб|Сем|Конс|Экз|Зач)[^\s\/]*\s*\/.*)$/i) ||
+          rest.match(/(?:^|[\s\-\u2013\u2014])(\S+\s*ауд\.?)$/i);
+  if (r) { out.room = r[1].trim(); rest = rest.slice(0, r.index); }
+  out.subject = rest.replace(SEP, "");
   return out;
+}
+
+// Turns the timetable grid (rowspans already expanded) into 2 weeks x 6 days
+// x 8 slots. The left-hand cells of a row carry the week ("1 неделя"), the
+// day ("Пн") and the date ("12.10.2026") - in any order and possibly
+// repeated on every row because of rowspan - and the last 8 cells are the
+// 8 time slots. Nothing about the left side is assumed beyond that.
+function gridToWeeks(grid) {
+  var weeks = emptyWeeks();
+  var curWeek = 0, curDay = -1;
+  grid.forEach(function (row) {
+    if (!row) return;
+    if (row.length < TIMES.length) {
+      // A separate "1 неделя" / "2 неделя" banner row.
+      var bm = row.join(" ").toLowerCase().match(/(\d)\s*недел/);
+      if (bm) curWeek = bm[1] === "2" ? 1 : 0;
+      return;
+    }
+    var lead = row.slice(0, row.length - TIMES.length);
+    var dayHere = -1, dateHere = "";
+    lead.forEach(function (cell) {
+      var t = String(cell || "").replace(/\s+/g, " ").trim().toLowerCase();
+      var wm = t.match(/(\d)\s*недел/);
+      if (wm) curWeek = wm[1] === "2" ? 1 : 0;
+      var dk = Object.keys(DAY_WORDS).filter(function (k) { return t.indexOf(k) === 0; })[0];
+      if (dk !== undefined) dayHere = DAY_WORDS[dk];
+      var dm = t.match(/\d{1,2}\.\d{1,2}\.\d{4}/);
+      if (dm) dateHere = dm[0];
+    });
+    if (dayHere < 0) return;           // header / banner row
+    curDay = dayHere;
+    if (dateHere) weeks[curWeek].days[curDay].date = dateHere;
+
+    row.slice(row.length - TIMES.length).forEach(function (cellText, i) {
+      if (!cellText) return;
+      var lines = String(cellText).split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
+      if (!lines.length) return;
+      var parsed = classifyLecturerCell(lines);
+      if (!parsed.subject && !parsed.groups) return;
+      var slot = weeks[curWeek].days[curDay].slots[i];
+      var firstEmpty = !slot.parts[0].subject && !slot.parts[0].groups;
+      if (firstEmpty) slot.parts[0] = parsed;
+      else if (slot.parts[0].groups !== parsed.groups) { slot.split = true; slot.parts[1] = parsed; }
+    });
+  });
+  return weeks;
 }
 
 function emptyPart() { return { groups: "", subject: "", room: "" }; }
@@ -329,71 +383,43 @@ async function run() {
     return null;
   }
 
-  function gridToWeeks(grid) {
-    var weeks = emptyWeeks();
-    var curWeek = 0, curDay = -1;
-    grid.forEach(function (row) {
-      var first = (row[0] || "").trim().toLowerCase();
-      if (/^\d+\s*недел/.test(first)) { curWeek = /^2/.test(first) ? 1 : 0; curDay = -1; return; }
-      var dayMatch = Object.keys(DAY_WORDS).filter(function (d) { return first.indexOf(d) === 0; })[0];
-      if (dayMatch !== undefined) {
-        curDay = DAY_WORDS[dayMatch];
-        var dm = row.join(" ").match(/\d{1,2}\.\d{1,2}\.\d{4}/);
-        if (dm) weeks[curWeek].days[curDay].date = dm[0];
-      }
-      if (curDay < 0) return;
-      var dataCols = row.slice(Math.max(0, row.length - TIMES.length));
-      dataCols.forEach(function (cellText, i) {
-        if (i >= 8 || !cellText) return;
-        var lines = cellText.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
-        if (!lines.length) return;
-        var parsed = classifyLecturerCell(lines);
-        if (!parsed.subject && !parsed.groups) return;
-        var slot = weeks[curWeek].days[curDay].slots[i];
-        var firstEmpty = !slot.parts[0].subject && !slot.parts[0].groups;
-        if (firstEmpty) slot.parts[0] = parsed;
-        else if (slot.parts[0].groups !== parsed.groups) { slot.split = true; slot.parts[1] = parsed; }
-      });
-    });
-    return weeks;
-  }
-
   if (GROUPS_MODE) {
     var roster = await sbFetch("/rest/v1/teacher_roster?select=full_name");
     var wanted = (roster || []).map(function (r) { return r.full_name; });
     console.log("App teachers (teacher_roster): " + wanted.join("; "));
-    var allGroups = [];
+    console.log("Groups left to the group scraper: " + SKIP_GROUPS.join(", "));
+    var anyOk = false;
     for (var wi = 0; wi < wanted.length; wi++) {
       var key = nameKey(wanted[wi]);
       var dropdownName = lecturerNames.filter(function (n) { return nameKey(n) === key; })[0];
       if (!dropdownName) { console.log("  " + wanted[wi] + ": not found in the lecturer dropdown, skipping."); continue; }
+      console.log("\n" + dropdownName);
 
       var picked = await selectLecturerAndSubmit(dropdownName);
-      if (!picked) { console.log("  " + dropdownName + ": could not select in the form, skipping."); continue; }
+      if (!picked) { console.log("  could not select in the form, skipping."); continue; }
       await new Promise(function (r) { setTimeout(r, 1200); });
       await tryDismissGate();
       await new Promise(function (r) { setTimeout(r, 500); });
       try { await page.waitForSelector("table", { timeout: 15000 }); }
-      catch (e) { console.log("  " + dropdownName + ": no table appeared, skipping."); continue; }
+      catch (e) { console.log("  no table appeared, skipping."); continue; }
 
-      var cells = await page.evaluate(function () {
-        return Array.prototype.slice.call(document.querySelectorAll("td")).map(function (td) { return td.innerText || td.textContent || ""; });
-      });
-      var mine = [];
-      cells.forEach(function (c) { groupsInCell(c).forEach(function (g) { if (mine.indexOf(g) === -1) mine.push(g); }); });
-      console.log("  " + dropdownName + " teaches groups: " + (mine.join(", ") || "(none found)"));
-      mine.forEach(function (g) { if (allGroups.indexOf(g) === -1) allGroups.push(g); });
+      var tgrid = await extractBestTable();
+      if (!tgrid) { console.log("  page had a table but it didn't look like a timetable, skipping."); continue; }
+      var tweeks = gridToWeeks(tgrid);
+      var res = await writeTeacherOwnLessons(wanted[wi], tweeks);
+      console.log("  teaches groups: " + (res.groups.join(", ") || "(none found)"));
+      console.log("  saved " + res.written + " lesson-row(s), removed " + res.removed + " outdated, failed " + res.errors + ".");
+      if (res.written) anyOk = true;
 
-      await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 60000 });
-      await tryDismissGate();
-      await new Promise(function (r) { setTimeout(r, 400); });
+      if (wi < wanted.length - 1) {
+        await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 60000 });
+        await tryDismissGate();
+        await new Promise(function (r) { setTimeout(r, 400); });
+      }
     }
-    if (!allGroups.length) {
-      fs.writeFileSync(path.join(__dirname, "..", "debug-lecturer-page.html"), await page.content());
-    }
-    fs.writeFileSync(GROUPS_OUT_FILE, allGroups.join("\n"));
-    console.log("\nGroups to scrape: " + (allGroups.join(", ") || "(none)") + " -> " + GROUPS_OUT_FILE);
+    if (!anyOk) fs.writeFileSync(path.join(__dirname, "..", "debug-lecturer-page.html"), await page.content());
     await browser.close();
+    if (!anyOk) { console.error("No lessons saved - see debug-lecturer-page.html."); process.exit(1); }
     return;
   }
 
@@ -536,6 +562,100 @@ async function writeLecturerWeeksToSupabase(lecturerName, weeks) {
   return written;
 }
 
+// "Валиева Елена Николаевна" -> "Валиева Е. Н." - the exact spelling the
+// group scraper uses, so both scrapers share ONE teachers row per group.
+function shortName(full) {
+  var p = String(full || "").replace(/[\s.]+/g, " ").trim().split(" ");
+  if (p.length < 3) return String(full || "").trim();
+  return p[0] + " " + p[1].charAt(0).toUpperCase() + ". " + p[2].charAt(0).toUpperCase() + ".";
+}
+
+async function upsertGroup(name, cache) {
+  if (cache[name]) return cache[name];
+  var rows = await sbFetch("/rest/v1/groups?on_conflict=name", {
+    method: "POST",
+    headers: { "Prefer": "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify({ name: name })
+  });
+  cache[name] = rows[0].id;
+  return cache[name];
+}
+
+async function writeTeacherOwnLessons(fullName, weeks) {
+  var teacherName = shortName(fullName);
+  var groupIds = {}, teacherIds = {}, touched = {}, groupsSeen = [];
+  var written = 0, errors = 0;
+
+  for (var w = 0; w < weeks.length; w++) {
+    for (var d = 0; d < weeks[w].days.length; d++) {
+      var day = weeks[w].days[d];
+      for (var s = 0; s < day.slots.length; s++) {
+        var parts = day.slots[s].parts;
+        for (var pi = 0; pi < parts.length; pi++) {
+          var part = parts[pi];
+          if (!part.subject && !part.groups) continue;
+          // A shared lecture is stored once per group, exactly like the group
+          // scraper does - the teacher page shows it as one card again.
+          var nums = groupsInCell(part.groups);
+          for (var gi = 0; gi < nums.length; gi++) {
+            var g = nums[gi];
+            if (groupsSeen.indexOf(g) === -1) groupsSeen.push(g);
+            if (SKIP_GROUPS.indexOf(g) !== -1) continue;
+            var where = (w + 1) + " нед. " + ["Пн","Вт","Ср","Чт","Пт","Сб"][d] + " пара " + (s + 1) + ", гр. " + g;
+            try {
+            var groupId = await upsertGroup(g, groupIds);
+            if (!teacherIds[groupId]) {
+              var tr = await sbFetch("/rest/v1/teachers?on_conflict=group_id,full_name", {
+                method: "POST",
+                headers: { "Prefer": "resolution=merge-duplicates,return=representation" },
+                body: JSON.stringify({ group_id: groupId, full_name: teacherName })
+              });
+              teacherIds[groupId] = tr[0].id;
+            }
+            touched[groupId + ":" + (w + 1) + ":" + d + ":" + s + ":" + pi] = true;
+            await sbFetch("/rest/v1/schedule_slots?on_conflict=group_id,week_number,day_index,slot_index,part_index", {
+              method: "POST",
+              headers: { "Prefer": "resolution=merge-duplicates" },
+              body: JSON.stringify({
+                group_id: groupId, week_number: w + 1, day_index: d, slot_index: s, part_index: pi,
+                lesson_date: day.date ? isoDate(day.date) : null,
+                subject: part.subject || null,
+                teacher_id: teacherIds[groupId],
+                room: part.room || null,
+                groups_label: part.groups || null,
+                updated_at: new Date().toISOString()
+              })
+            });
+            written++;
+            console.log("    " + where + ": " + (part.subject || "") + " " + (part.room || ""));
+            } catch (err) {
+              errors++;
+              console.log("    " + where + ": FAILED - " + err.message);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Lessons of THIS teacher in these groups that disappeared from the site.
+  var removed = 0;
+  // Only clean up after a fully successful pass - never delete on a partial one.
+  var gids = (errors || !written) ? [] : Object.keys(teacherIds);
+  for (var k = 0; k < gids.length; k++) {
+    var rows = await sbFetch("/rest/v1/schedule_slots?group_id=eq." + gids[k] + "&teacher_id=eq." + teacherIds[gids[k]] +
+      "&select=id,week_number,day_index,slot_index,part_index");
+    for (var ri = 0; ri < (rows || []).length; ri++) {
+      var r = rows[ri];
+      if (!touched[gids[k] + ":" + r.week_number + ":" + r.day_index + ":" + r.slot_index + ":" + r.part_index]) {
+        await sbFetch("/rest/v1/schedule_slots?id=eq." + r.id, { method: "DELETE" });
+        removed++;
+      }
+    }
+  }
+  return { written: written, removed: removed, groups: groupsSeen, errors: errors };
+}
+
 if (require.main === module) {
   run().catch(function (err) {
     console.error(err);
@@ -544,6 +664,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  classifyLecturerCell, isoDate, randomCode, nameKey, groupsInCell,
+  classifyLecturerCell, isoDate, randomCode, nameKey, groupsInCell, shortName, writeTeacherOwnLessons, gridToWeeks,
   __test: { ensureRosterRows, ensureGroupId, writeLecturerWeeksToSupabase }
 };

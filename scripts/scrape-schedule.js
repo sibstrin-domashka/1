@@ -65,7 +65,7 @@ function classifyLines(lines) {
   }
 
   var rest = text;
-  var g = rest.match(/^([0-9(),\s]+гр\.)/);
+  var g = rest.match(/^((?:\d{2,4}[а-яё]?(?:\(\d+\))?\s*,\s*)*\d{2,4}[а-яё]?(?:\(\d+\))?\s*гр\.)/i);
   if (g) {
     out.groups = g[1].trim();
     rest = rest.slice(g[0].length);
