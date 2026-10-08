@@ -105,43 +105,66 @@ function classifyLecturerCell(lines) {
 }
 
 // Turns the timetable grid (rowspans already expanded) into 2 weeks x 6 days
-// x 8 slots. The left-hand cells of a row carry the week ("1 неделя"), the
-// day ("Пн") and the date ("12.10.2026") - in any order and possibly
-// repeated on every row because of rowspan - and the last 8 cells are the
-// 8 time slots. Nothing about the left side is assumed beyond that.
+// x 8 slots. Each day row is [ ...week / day / date cells..., 8 slot cells,
+// maybe some extra junk ]. We anchor on the DATE cell ("12.10.2026"): the 8
+// time slots are always the 8 cells right after it. (Taking "the last 8
+// cells" put every lesson 3 columns too early on the real page, because the
+// rows there carry extra trailing cells.) Falls back to the header row's
+// time columns, then to "last 8", only if a row has no date at all.
+var DATE_RE = /\d{1,2}\.\d{1,2}\.\d{4}/;
+var TIME_RANGE_RE1 = /\d{1,2}[:.]\d{2}\s*[-\u2013]\s*\d{1,2}[:.]\d{2}/;
+
 function gridToWeeks(grid) {
   var weeks = emptyWeeks();
-  var curWeek = 0, curDay = -1;
+  var curWeek = 0;
+
+  var headerStart = -1;
+  for (var hr = 0; hr < grid.length && headerStart < 0; hr++) {
+    var hrow = grid[hr] || [];
+    for (var hc = 0; hc < hrow.length; hc++) {
+      if (TIME_RANGE_RE1.test(String(hrow[hc] || ""))) { headerStart = hc; break; }
+    }
+  }
+
   grid.forEach(function (row) {
     if (!row) return;
-    if (row.length < TIMES.length) {
-      // A separate "1 неделя" / "2 неделя" banner row.
-      var bm = row.join(" ").toLowerCase().match(/(\d)\s*недел/);
-      if (bm) curWeek = bm[1] === "2" ? 1 : 0;
-      return;
-    }
-    var lead = row.slice(0, row.length - TIMES.length);
+    var cells = row.map(function (c) { return String(c || ""); });
+
+    var dateIdx = -1;
+    for (var i = 0; i < cells.length; i++) { if (DATE_RE.test(cells[i])) { dateIdx = i; break; } }
+    var start = dateIdx >= 0 ? dateIdx + 1 : (headerStart >= 0 ? headerStart : cells.length - TIMES.length);
+
+    // Week / day / date live in the cells before the slots.
+    var lead = cells.slice(0, Math.max(0, dateIdx >= 0 ? dateIdx + 1 : start));
     var dayHere = -1, dateHere = "";
     lead.forEach(function (cell) {
-      var t = String(cell || "").replace(/\s+/g, " ").trim().toLowerCase();
+      var t = cell.replace(/\s+/g, " ").trim().toLowerCase();
       var wm = t.match(/(\d)\s*недел/);
       if (wm) curWeek = wm[1] === "2" ? 1 : 0;
       var dk = Object.keys(DAY_WORDS).filter(function (k) { return t.indexOf(k) === 0; })[0];
       if (dk !== undefined) dayHere = DAY_WORDS[dk];
-      var dm = t.match(/\d{1,2}\.\d{1,2}\.\d{4}/);
+      var dm = t.match(DATE_RE);
       if (dm) dateHere = dm[0];
     });
-    if (dayHere < 0) return;           // header / banner row
-    curDay = dayHere;
-    if (dateHere) weeks[curWeek].days[curDay].date = dateHere;
+    if (dayHere < 0 && dateHere) {
+      // Day cell missing/unreadable: derive the weekday from the date itself.
+      var dp = dateHere.split(".");
+      var js = new Date(+dp[2], +dp[1] - 1, +dp[0]).getDay(); // 0=Sun
+      if (js >= 1 && js <= 6) dayHere = js - 1;
+    }
+    if (dayHere < 0) {
+      var bm = cells.join(" ").toLowerCase().match(/(\d)\s*недел/);
+      if (bm && cells.length < TIMES.length) curWeek = bm[1] === "2" ? 1 : 0;
+      return; // header / banner row
+    }
+    if (dateHere) weeks[curWeek].days[dayHere].date = dateHere;
 
-    row.slice(row.length - TIMES.length).forEach(function (cellText, i) {
-      if (!cellText) return;
-      var lines = String(cellText).split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
+    cells.slice(start, start + TIMES.length).forEach(function (cellText, si) {
+      var lines = cellText.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
       if (!lines.length) return;
       var parsed = classifyLecturerCell(lines);
       if (!parsed.subject && !parsed.groups) return;
-      var slot = weeks[curWeek].days[curDay].slots[i];
+      var slot = weeks[curWeek].days[dayHere].slots[si];
       var firstEmpty = !slot.parts[0].subject && !slot.parts[0].groups;
       if (firstEmpty) slot.parts[0] = parsed;
       else if (slot.parts[0].groups !== parsed.groups) { slot.split = true; slot.parts[1] = parsed; }
