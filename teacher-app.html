@@ -191,7 +191,7 @@ var MONTH_NAMES = ["янв","фев","мар","апр","май","июн","июл
 var teacherProfile = null;   // { id, full_name }
 var lessonsCache = [];       // all schedule_slots joined with homework, for this teacher
 var dayViewAbsIndex = 0;     // 0..13 across the 2-week span
-var activeLessonId = null;
+var activeLessons = [];      // the merged card being edited (one row per group)
 
 function showToast(text){
   var t = document.getElementById("toast");
@@ -217,8 +217,8 @@ async function loadTeacherProfile(){
   document.getElementById("bootMsg").style.display = "none";
   document.getElementById("app").style.display = "block";
 
-  dayViewAbsIndex = todayAbsIndex();
   await loadLessons();
+  dayViewAbsIndex = todayAbsIndex();   // after loading, so real lesson dates can be matched
   renderDay();
 }
 
@@ -239,7 +239,8 @@ function weekAndDayFromAbs(abs){
 
 function todayAbsIndex(){
   // Try to match a real lesson_date from the loaded cache first.
-  var todayStr = new Date().toISOString().slice(0,10);
+  var now = new Date();
+  var todayStr = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0") + "-" + String(now.getDate()).padStart(2,"0");
   for(var i = 0; i < lessonsCache.length; i++){
     if(lessonsCache[i].lesson_date === todayStr){
       return weekDayToAbs(lessonsCache[i].week_number, lessonsCache[i].day_index);
@@ -298,12 +299,41 @@ async function loadLessons(){
   lessonsCache = res.data || [];
 }
 
+// A lecture shared by several groups ("121, 122, 124, 128 гр.") is stored
+// once per group, so the same lesson comes back several times. Show it as
+// ONE card; saving homework writes it to every group's copy.
+function mergeLessons(list){
+  var byKey = {};
+  var out = [];
+  list.forEach(function(l){
+    var key = [l.week_number, l.day_index, l.slot_index, l.subject || "", l.room || "", l.groups_label || ""].join("|");
+    if(!byKey[key]){
+      byKey[key] = { slot_index: l.slot_index, subject: l.subject, room: l.room, rows: [], groupNames: [] };
+      out.push(byKey[key]);
+    }
+    byKey[key].rows.push(l);
+    var gn = l.groups && l.groups.name;
+    if(gn && byKey[key].groupNames.indexOf(gn) === -1) byKey[key].groupNames.push(gn);
+  });
+  out.forEach(function(c){
+    var first = c.rows[0];
+    c.groupLabel = first.groups_label || (c.groupNames.length ? c.groupNames.join(", ") + " гр." : "Группа");
+    // Homework from whichever copy already has it.
+    c.hw = null;
+    c.rows.forEach(function(r){
+      var h = Array.isArray(r.homework) ? r.homework[0] : r.homework;
+      if(!c.hw && h && h.description && h.description.trim()) c.hw = h;
+    });
+  });
+  return out;
+}
+
 function renderDay(){
   renderDayLabel();
   var wd = weekAndDayFromAbs(dayViewAbsIndex);
-  var list = lessonsCache.filter(function(l){
+  var list = mergeLessons(lessonsCache.filter(function(l){
     return l.week_number === wd.week && l.day_index === wd.day;
-  }).sort(function(a,b){ return a.slot_index - b.slot_index; });
+  })).sort(function(a,b){ return a.slot_index - b.slot_index; });
 
   var wrap = document.getElementById("dvList");
   wrap.innerHTML = "";
@@ -313,29 +343,26 @@ function renderDay(){
     return;
   }
 
-  list.forEach(function(l){
+  list.forEach(function(c){
     var card = document.createElement("div");
     card.className = "lesson-card";
-
-    var hw = Array.isArray(l.homework) ? l.homework[0] : l.homework;
-    var hasHw = hw && hw.description && hw.description.trim().length > 0;
-    var groupLabel = l.groups_label || (l.groups && l.groups.name) || "Группа";
-    var timeLabel = "Пара " + (l.slot_index + 1);
+    var hasHw = !!c.hw;
+    var timeLabel = "Пара " + (c.slot_index + 1);
 
     card.innerHTML =
       '<div class="lesson-top">' +
         '<div>' +
           '<div class="lesson-time">' + timeLabel + '</div>' +
-          '<div class="lesson-subject">' + escapeHtml(l.subject || "Предмет") + '</div>' +
-          '<div class="lesson-meta">' + escapeHtml(groupLabel) + (l.room ? ' · ' + escapeHtml(l.room) : '') + '</div>' +
+          '<div class="lesson-subject">' + escapeHtml(c.subject || "Предмет") + '</div>' +
+          '<div class="lesson-meta">' + escapeHtml(c.groupLabel) + (c.room ? ' · ' + escapeHtml(c.room) : '') + '</div>' +
         '</div>' +
       '</div>' +
       '<div class="hw-status ' + (hasHw ? "done" : "pending") + '">' +
         (hasHw ? "✓ Задание добавлено" : "Задание ещё не добавлено") +
       '</div>' +
-      '<button class="hw-btn" data-id="' + l.id + '">' + (hasHw ? "Изменить задание" : "Добавить задание") + '</button>';
+      '<button class="hw-btn">' + (hasHw ? "Изменить задание" : "Добавить задание") + '</button>';
 
-    card.querySelector(".hw-btn").onclick = function(){ openHwModal(l); };
+    card.querySelector(".hw-btn").onclick = function(){ openHwModal(c); };
     wrap.appendChild(card);
   });
 }
@@ -348,16 +375,12 @@ function escapeHtml(s){
 
 /* ---------------- Homework modal ---------------- */
 
-function openHwModal(l){
-  activeLessonId = l.id;
-  var hw = Array.isArray(l.homework) ? l.homework[0] : l.homework;
-  var groupLabel = l.groups_label || (l.groups && l.groups.name) || "Группа";
-
-  document.getElementById("hwModalTitle").textContent = l.subject || "Домашнее задание";
-  document.getElementById("hwModalSub").textContent = groupLabel + (l.room ? " · " + l.room : "");
-  document.getElementById("hwDesc").value = hw && hw.description ? hw.description : "";
-  document.getElementById("hwDue").value = hw && hw.due_date ? hw.due_date : "";
-
+function openHwModal(c){
+  activeLessons = c.rows;
+  document.getElementById("hwModalTitle").textContent = c.subject || "Домашнее задание";
+  document.getElementById("hwModalSub").textContent = c.groupLabel + (c.room ? " · " + c.room : "");
+  document.getElementById("hwDesc").value = c.hw && c.hw.description ? c.hw.description : "";
+  document.getElementById("hwDue").value = c.hw && c.hw.due_date ? c.hw.due_date : "";
   document.getElementById("hwOverlay").classList.add("active");
 }
 document.getElementById("hwCancelBtn").onclick = function(){
@@ -365,7 +388,7 @@ document.getElementById("hwCancelBtn").onclick = function(){
 };
 
 document.getElementById("hwSaveBtn").onclick = async function(){
-  if(!activeLessonId) return;
+  if(!activeLessons.length) return;
   var btn = document.getElementById("hwSaveBtn");
   btn.disabled = true; btn.textContent = "Сохраняем...";
 
@@ -373,14 +396,12 @@ document.getElementById("hwSaveBtn").onclick = async function(){
   var due = document.getElementById("hwDue").value || null;
 
   try{
-    var existing = await sb.from("homework").select("id").eq("schedule_slot_id", activeLessonId).maybeSingle();
-
-    var res;
-    if(existing.data){
-      res = await sb.from("homework").update({ description: desc, due_date: due }).eq("id", existing.data.id);
-    } else {
-      res = await sb.from("homework").insert({ schedule_slot_id: activeLessonId, description: desc, due_date: due });
-    }
+    // One homework row per group's copy of the lesson (unique per slot),
+    // so every group sees the same assignment.
+    var rows = activeLessons.map(function(l){
+      return { schedule_slot_id: l.id, description: desc, due_date: due };
+    });
+    var res = await sb.from("homework").upsert(rows, { onConflict: "schedule_slot_id" });
 
     if(res.error){
       showToast("Не сохранилось: " + res.error.message);
@@ -388,7 +409,7 @@ document.getElementById("hwSaveBtn").onclick = async function(){
     }
 
     document.getElementById("hwOverlay").classList.remove("active");
-    showToast("Задание сохранено");
+    showToast(rows.length > 1 ? "Задание сохранено для " + rows.length + " групп" : "Задание сохранено");
     await loadLessons();
     renderDay();
   } catch(e){
