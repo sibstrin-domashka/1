@@ -43,6 +43,37 @@ const RUCAPTCHA_HOST = "https://rucaptcha.com";
 // Scraping every lecturer's full 2-week table is a lot of page loads - cap
 // it per run (env-overridable) so a first test run doesn't take hours.
 const MAX_LECTURERS_PER_RUN = parseInt(process.env.MAX_LECTURERS_PER_RUN || "9999", 10);
+// GROUPS MODE (used by update-schedule.yml): don't touch the database at all.
+// Just open the timetable of every teacher who has an access code in
+// teacher_roster (i.e. the app's own teachers), note every student group
+// that appears in it, and write those group numbers to lecturer-groups.txt.
+// The group scraper then scrapes each of those groups with its proven
+// parser - so a teacher automatically sees lessons in ALL their groups,
+// and adding a teacher to teacher_roster is the only step ever needed.
+const GROUPS_MODE = process.env.LECTURER_GROUPS_MODE === "1";
+const GROUPS_OUT_FILE = path.join(__dirname, "..", "lecturer-groups.txt");
+
+// "Валиева Елена Николаевна" / "Валиева Е. Н." / "Валиева Е.Н." -> "валиеваен"
+function nameKey(txt) {
+  var parts = String(txt || "").replace(/\u00a0/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е")
+    .replace(/[\s.]+/g, " ").trim().split(" ");
+  return (parts[0] + (parts[1] || "").charAt(0) + (parts[2] || "").charAt(0)).toLowerCase();
+}
+
+// Every student group number mentioned in one cell, e.g.
+// "121, 122, 124, 128 гр. История России ..." -> ["121","122","124","128"],
+// "128(1) гр. ..." -> ["128"]. Only numbers directly before "гр" count, so
+// room numbers ("306 ауд.") and dates are never mistaken for groups.
+function groupsInCell(text) {
+  var out = [];
+  var clean = String(text || "").replace(/\(\d+\)/g, "");
+  var re = /((?:\d{2,4}\s*,\s*)*\d{2,4})\s*гр/g;
+  var m;
+  while ((m = re.exec(clean))) {
+    m[1].split(",").forEach(function (n) { n = n.trim(); if (n && out.indexOf(n) === -1) out.push(n); });
+  }
+  return out;
+}
 
 const TIMES = [
   "08:30-10:00", "10:15-11:45", "12:00-13:30", "14:10-15:35",
@@ -223,12 +254,12 @@ async function run() {
   }
 
   // ---------- Step 2: make sure every one of them has a teacher_roster row ----------
-  var newCodes = await ensureRosterRows(lecturerNames);
+  var newCodes = GROUPS_MODE ? [] : await ensureRosterRows(lecturerNames);
   if (newCodes.length) {
     console.log("\n" + newCodes.length + " NEW lecturers were added to teacher_roster with a fresh code each:");
     newCodes.forEach(function (r) { console.log("  " + r.full_name + " -> " + r.access_code); });
     console.log("(Tim: query 'select full_name, access_code from teacher_roster' any time to see everyone's code and email it out.)\n");
-  } else {
+  } else if (!GROUPS_MODE) {
     console.log("No new lecturers - teacher_roster already has everyone.");
   }
 
@@ -325,6 +356,45 @@ async function run() {
       });
     });
     return weeks;
+  }
+
+  if (GROUPS_MODE) {
+    var roster = await sbFetch("/rest/v1/teacher_roster?select=full_name");
+    var wanted = (roster || []).map(function (r) { return r.full_name; });
+    console.log("App teachers (teacher_roster): " + wanted.join("; "));
+    var allGroups = [];
+    for (var wi = 0; wi < wanted.length; wi++) {
+      var key = nameKey(wanted[wi]);
+      var dropdownName = lecturerNames.filter(function (n) { return nameKey(n) === key; })[0];
+      if (!dropdownName) { console.log("  " + wanted[wi] + ": not found in the lecturer dropdown, skipping."); continue; }
+
+      var picked = await selectLecturerAndSubmit(dropdownName);
+      if (!picked) { console.log("  " + dropdownName + ": could not select in the form, skipping."); continue; }
+      await new Promise(function (r) { setTimeout(r, 1200); });
+      await tryDismissGate();
+      await new Promise(function (r) { setTimeout(r, 500); });
+      try { await page.waitForSelector("table", { timeout: 15000 }); }
+      catch (e) { console.log("  " + dropdownName + ": no table appeared, skipping."); continue; }
+
+      var cells = await page.evaluate(function () {
+        return Array.prototype.slice.call(document.querySelectorAll("td")).map(function (td) { return td.innerText || td.textContent || ""; });
+      });
+      var mine = [];
+      cells.forEach(function (c) { groupsInCell(c).forEach(function (g) { if (mine.indexOf(g) === -1) mine.push(g); }); });
+      console.log("  " + dropdownName + " teaches groups: " + (mine.join(", ") || "(none found)"));
+      mine.forEach(function (g) { if (allGroups.indexOf(g) === -1) allGroups.push(g); });
+
+      await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 60000 });
+      await tryDismissGate();
+      await new Promise(function (r) { setTimeout(r, 400); });
+    }
+    if (!allGroups.length) {
+      fs.writeFileSync(path.join(__dirname, "..", "debug-lecturer-page.html"), await page.content());
+    }
+    fs.writeFileSync(GROUPS_OUT_FILE, allGroups.join("\n"));
+    console.log("\nGroups to scrape: " + (allGroups.join(", ") || "(none)") + " -> " + GROUPS_OUT_FILE);
+    await browser.close();
+    return;
   }
 
   var lecturersToScrape = lecturerNames.slice(0, MAX_LECTURERS_PER_RUN);
@@ -474,6 +544,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  classifyLecturerCell, isoDate, randomCode,
+  classifyLecturerCell, isoDate, randomCode, nameKey, groupsInCell,
   __test: { ensureRosterRows, ensureGroupId, writeLecturerWeeksToSupabase }
 };
