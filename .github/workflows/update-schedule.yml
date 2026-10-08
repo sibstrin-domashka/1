@@ -3,17 +3,21 @@ name: Update schedule
 on:
   schedule:
     # 03:00 UTC = 06:00 MSK (Novosibirsk is UTC+7, so ~10:00 local).
-    # Adjust the hour if you want it to run at a different local time.
     - cron: "0 3 * * *"
   workflow_dispatch: {}   # lets you run it manually from the Actions tab
 
 jobs:
   scrape:
     # Runs on YOUR own computer (a self-hosted runner), not GitHub's cloud
-    # servers - the target site blocks GitHub's/Azure's known datacenter IP
-    # ranges as "VPN/proxy traffic", so the job has to come from a normal
-    # residential IP instead. See README.md for how to set the runner up.
+    # servers - the target site blocks GitHub's/Azure's datacenter IPs.
     runs-on: self-hosted
+
+    # Shared by every group step below.
+    env:
+      SUPABASE_URL: "https://wsrrqwvemfliwzsqlkvg.supabase.co"
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RUCAPTCHA_KEY: ${{ secrets.RUCAPTCHA_KEY }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,18 +28,39 @@ jobs:
       - name: Install Puppeteer and stealth plugin
         run: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
 
-      - name: Run scraper
+      # One step per group. A teacher sees every lesson of theirs in ANY of
+      # these groups. To add a group: copy a block, change the number in
+      # both places. continue-on-error = one group failing (captcha, site
+      # hiccup) doesn't stop the others from updating.
+      - name: Group 128
+        continue-on-error: true
         env:
-          SUPABASE_URL: "https://wsrrqwvemfliwzsqlkvg.supabase.co"
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RUCAPTCHA_KEY: ${{ secrets.RUCAPTCHA_KEY }}
           TIMETABLE_GROUP_NAME: "128"
         run: node scripts/scrape-schedule.js
 
-      - name: Upload debug page on failure
-        if: failure()
+      - name: Group 121
+        continue-on-error: true
+        env:
+          TIMETABLE_GROUP_NAME: "121"
+        run: node scripts/scrape-schedule.js
+
+      - name: Group 122
+        continue-on-error: true
+        env:
+          TIMETABLE_GROUP_NAME: "122"
+        run: node scripts/scrape-schedule.js
+
+      - name: Group 124
+        continue-on-error: true
+        env:
+          TIMETABLE_GROUP_NAME: "124"
+        run: node scripts/scrape-schedule.js
+
+      - name: Upload debug page
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: debug-page
           path: debug-page.html
+          if-no-files-found: ignore
           retention-days: 7
