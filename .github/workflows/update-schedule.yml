@@ -2,16 +2,12 @@ name: Update schedule
 
 on:
   schedule:
-    # 03:00 UTC = ~10:00 Novosibirsk.
     - cron: "0 3 * * *"
-  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+  workflow_dispatch: {}
 
 jobs:
   scrape:
-    # Runs on YOUR own computer (a self-hosted runner), not GitHub's cloud
-    # servers - the target site blocks GitHub's/Azure's datacenter IPs.
     runs-on: self-hosted
-    timeout-minutes: 360
 
     env:
       SUPABASE_URL: "https://wsrrqwvemfliwzsqlkvg.supabase.co"
@@ -28,21 +24,18 @@ jobs:
       - name: Install Puppeteer and stealth plugin
         run: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
 
-      # Opens the timetable of every teacher in teacher_roster on the
-      # university site and writes down every group they teach.
-      # Doesn't change the database. If it fails, the next step still
-      # scrapes the fixed groups.
-      - name: Find all groups of our teachers
+      - name: Group 128
         continue-on-error: true
         env:
-          LECTURER_GROUPS_MODE: "1"
-        run: node scripts/scrape-lecturers.js
+          TIMETABLE_GROUP_NAME: "128"
+        run: node scripts/scrape-schedule.js
 
-      # Scrapes the fixed groups + every group found above, one by one.
-      - name: Scrape groups
+      - name: Teachers' own timetables
+        continue-on-error: true
         env:
-          TIMETABLE_GROUP_NAMES: "128,121,122,124"
-        run: node scripts/scrape-groups.js
+          LECTURER_APP_MODE: "1"
+          SKIP_GROUPS: "128"
+        run: node scripts/scrape-lecturers.js
 
       - name: Upload debug pages
         if: always()
@@ -52,6 +45,5 @@ jobs:
           path: |
             debug-page.html
             debug-lecturer-page.html
-            lecturer-groups.txt
           if-no-files-found: ignore
           retention-days: 7
