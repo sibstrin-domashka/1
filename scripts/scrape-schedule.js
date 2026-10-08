@@ -570,9 +570,19 @@ async function writeToSupabase(weeks) {
     throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (as GitHub Actions secrets).");
   }
 
-  var groups = await sbFetch("/rest/v1/groups?name=eq." + encodeURIComponent(GROUP_NAME) + "&select=id");
+  // Create the group on first sight, so adding a new group to the workflow
+  // is the only step needed (teachers who also teach that group then see
+  // those lessons too).
+  var groups = await sbFetch(
+    "/rest/v1/groups?on_conflict=name",
+    {
+      method: "POST",
+      headers: { "Prefer": "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({ name: GROUP_NAME })
+    }
+  );
   if (!groups || !groups.length) {
-    throw new Error("Group '" + GROUP_NAME + "' does not exist in Supabase yet. Create it first (insert into groups).");
+    throw new Error("Could not find or create group '" + GROUP_NAME + "' in Supabase.");
   }
   var groupId = groups[0].id;
 
