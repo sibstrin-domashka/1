@@ -234,6 +234,10 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
 .info{background:var(--blue-light);border-radius:8px;padding:10px 12px;margin-bottom:9px}
 .info .l{font-size:.66rem;color:var(--gray);font-weight:600;text-transform:uppercase}
 .info .v{font-size:.94rem;font-weight:600}
+.hw-files{margin:0 0 12px}
+.hw-imgs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.hw-imgs img{width:92px;height:92px;object-fit:cover;border-radius:10px;border:1px solid var(--border);display:block}
+.hw-file{display:block;padding:9px 12px;margin-bottom:6px;border:1px solid var(--border);border-radius:10px;color:var(--text-primary);text-decoration:none;font-size:.88rem;word-break:break-all;background:var(--surface)}
 .hw{background:var(--cream);border-left:4px solid var(--blue);padding:10px 12px;border-radius:0 8px 8px 0;white-space:pre-wrap;font-size:.9rem;margin-bottom:12px}
 .topics{margin-top:12px;border-top:1px solid var(--border);padding-top:11px}
 .topics h4{font-size:.9rem;color:var(--blue-dark);margin-bottom:8px}
@@ -375,9 +379,9 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
   var slotIdByKey = {}; // "w:d:t:p" -> schedule_slots.id
   var homeworkIdByKey = {}; // "w:d:t:p" -> homework.id (once one exists)
   var viewMode = localStorage.getItem("domashka_view_v1") || "day"; // "day" | "grid"
-  var dayViewAbsIndex = null; // 0..11 across the 2-week span (week*6+day); null = not yet resolved
+  var dayViewAbsIndex = null; // 0..13 across the 2-week span (week*7+day); null = not yet resolved
   var TIMES=["08:30–10:00","10:15–11:45","12:00–13:30","14:10–15:35","15:45–17:10","17:20–18:45","18:50–20:15","20:20–21:50"];
-  var DAYS=["Пн","Вт","Ср","Чт","Пт","Сб"];
+  var DAYS=["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
 
   var data=null, user={name:"",avatar:"",role:"user"}, admin=false, owner=false, wi=0, cur=null, activePart=0;
 
@@ -407,6 +411,12 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
             }
           });
         });
+      });
+      // Weeks saved before Sunday existed have 6 days - top them up to 7.
+      data.weeks.forEach(function(w){
+        while(w.days.length<DAYS.length){
+          w.days.push({name:DAYS[w.days.length], date:"", slots:TIMES.map(function(){ return {split:false, parts:[emptySlot()]}; })});
+        }
       });
       if(!data.admins) data.admins=[];
       if(!data.stats) data.stats={};
@@ -548,7 +558,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
   // regardless of where the data came from.
   function rowsToWeeksShape(rows, teacherNameById){
     var weeks=[{days:[]},{days:[]}];
-    for(var w=0; w<2; w++) for(var d=0; d<6; d++)
+    for(var w=0; w<2; w++) for(var d=0; d<DAYS.length; d++)
       weeks[w].days.push({date:"", slots: TIMES.map(function(){ return {split:false, parts:[]}; })});
     (rows||[]).forEach(function(r){
       var wIdx=r.week_number-1;
@@ -572,6 +582,20 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     weeks.forEach(function(w){ w.days.forEach(function(d){ d.slots.forEach(function(s){
       if(!s.parts[0]) s.parts[0]={subject:"",teacher:"",room:"",groups:""};
     }); }); });
+    // Days without lessons (always Sunday, sometimes others) get no date from
+    // the rows - count it from any dated day of the same week.
+    weeks.forEach(function(w){
+      var ai=-1, anchor=null;
+      w.days.forEach(function(d,i){ if(ai<0 && d.date){ ai=i; anchor=d.date; } });
+      if(ai<0) return;
+      var m=anchor.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      if(!m) return;
+      w.days.forEach(function(d,i){
+        if(d.date) return;
+        var dt=new Date(+m[3], +m[2]-1, +m[1]+(i-ai));
+        d.date=String(dt.getDate()).padStart(2,"0")+"."+String(dt.getMonth()+1).padStart(2,"0")+"."+dt.getFullYear();
+      });
+    });
     return {weeks:weeks};
   }
 
@@ -595,7 +619,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     var slotIds=Object.keys(slotIdByKey).map(function(k){ return slotIdByKey[k]; });
     if(!slotIds.length) return;
 
-    var hwRes=await sb.from("homework").select("id,schedule_slot_id,description,due_date").in("schedule_slot_id", slotIds);
+    var hwRes=await sb.from("homework").select("id,schedule_slot_id,description,due_date,attachments").in("schedule_slot_id", slotIds);
     var hwByScheduleSlot={};
     (hwRes.data||[]).forEach(function(h){ hwByScheduleSlot[h.schedule_slot_id]=h; });
 
@@ -630,6 +654,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
       var localPart=slot && slot.parts[p];
       if(!localPart) return;
       localPart.hw=h.description||"";
+      localPart.files=Array.isArray(h.attachments)?h.attachments:[];
       localPart.due=isoToDMY(h.due_date);
       localPart.topics=topicsByHw[h.id]||[];
       if(!localPart.done) localPart.done={};
@@ -731,7 +756,6 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
   function getTodayInfo(){
     var now=new Date();
     var dayIndex=(now.getDay()+6)%7; // Mon=0 ... Sun=6
-    if(dayIndex>5) return {now:now,day:-1,slot:-1,week:-1,break:false,next:-1};
     var mins=now.getHours()*60+now.getMinutes();
     var slot=-1, br=false, next=-1;
     for(var i=0;i<TIMES.length;i++){
@@ -825,6 +849,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
           subject=subject ? subject+" · "+slot.parts[1].subject : slot.parts[1].subject;
         }
       }
+      if(!subject){ el.style.display="none"; return; } // no lesson right now (e.g. Sunday)
       el.className="current-status";
       el.innerHTML='<div><strong>Сейчас · '+dayName+' · '+(info.slot+1)+'-я пара</strong>'+
         (subject?' · '+esc(subject):'')+'</div><div class="status-time">'+nowStr+' · '+range+'</div>';
@@ -853,10 +878,10 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     var info=getTodayInfo();
     if(dayViewAbsIndex===null){
       var display0=resolveDisplayDay();
-      dayViewAbsIndex=(display0.week>=0 && display0.day>=0) ? (display0.week*6+display0.day) : 0;
+      dayViewAbsIndex=(display0.week>=0 && display0.day>=0) ? (display0.week*7+display0.day) : 0;
     }
-    var activeWeek=Math.floor(dayViewAbsIndex/6);
-    var showDay=dayViewAbsIndex%6;
+    var activeWeek=Math.floor(dayViewAbsIndex/7);
+    var showDay=dayViewAbsIndex%7;
     var liveWeek=currentWeekIndex(info);
     var jsDay=new Date().getDay();
     var isWeekendNow=(jsDay===0 || jsDay===6);
@@ -884,7 +909,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     html+='<div class="day-view-header"><div class="dv-day">'+day.name+'</div>';
     if(showWeekendBanner) html+='<div class="dv-date" style="color:var(--today-dark);font-weight:600">Сегодня выходной — показываю ближайший понедельник</div>';
     html+='<div class="dv-date">'+(day.date?esc(day.date):'')+'</div></div>';
-    html+='<button id="dvNext" class="dv-nav-btn"'+(dayViewAbsIndex>=11?' disabled':'')+'>›</button>';
+    html+='<button id="dvNext" class="dv-nav-btn"'+(dayViewAbsIndex>=13?' disabled':'')+'>›</button>';
     html+='</div>';
 
     html+='<div class="dv-list">';
@@ -904,7 +929,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
         html+='<div class="dv-card '+(has?"has ":"")+sc+(isCurrentSlot?" current-slot":"")+'" data-w="'+activeWeek+'" data-d="'+showDay+'" data-t="'+si+'" data-part="'+pi+'">';
         html+='<div class="dv-time">'+TIMES[si].replace('–','–<br>')+'</div>';
         html+='<div class="dv-body">';
-        if(part.hw||tn) html+='<span class="tag-dz">ДЗ</span>';
+        if(part.hw||tn||(part.files&&part.files.length)) html+='<span class="tag-dz">ДЗ</span>';
         if(tn) html+='<span class="tag-t">'+tk+'/'+tn+'</span>';
         html+='<div class="dv-subj'+(has?'':' empty')+'">'+(part.subject?esc(part.subject):(myIsOwner?'Добавить пару':'—'))+'</div>';
         var roomInfo=parseRoomType(part.room);
@@ -931,7 +956,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     var dvPrev=document.getElementById("dvPrev");
     if(dvPrev) dvPrev.onclick=function(){ if(dayViewAbsIndex>0){ dayViewAbsIndex--; render(); } };
     var dvNext=document.getElementById("dvNext");
-    if(dvNext) dvNext.onclick=function(){ if(dayViewAbsIndex<11){ dayViewAbsIndex++; render(); } };
+    if(dvNext) dvNext.onclick=function(){ if(dayViewAbsIndex<13){ dayViewAbsIndex++; render(); } };
 
     var cards=document.getElementById("area").querySelectorAll(".dv-card");
     for(var c=0;c<cards.length;c++){
@@ -983,7 +1008,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
               var sc=statusClass(part);
               var has=part.subject||part.hw||(part.topics&&part.topics.length);
               html+='<div class="subslot '+(has?"has ":"")+sc+(isActiveWeek&&isToday&&si===info.slot?' current-slot':'')+'" data-part="'+sp+'">';
-              if(part.hw||(part.topics&&part.topics.length)) html+='<span class="tag-dz">ДЗ</span>';
+              if(part.hw||(part.files&&part.files.length)||(part.topics&&part.topics.length)) html+='<span class="tag-dz">ДЗ</span>';
               html+='<div class="s-subj">'+(part.subject?esc(part.subject):'<span style="color:var(--text-secondary)">—</span>')+'</div>';
               html+='<div class="s-meta">';
               var spRoom=parseRoomType(part.room);
@@ -998,7 +1023,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
             var tn=part.topics?part.topics.length:0;
             var tk=part.topics?part.topics.filter(function(x){return x.by;}).length:0;
             html+='<td class="slot '+(has?"has ":"")+sc+curClass+'" data-w="'+wIdx+'" data-d="'+di+'" data-t="'+si+'" data-part="0">';
-            if(part.hw||tn) html+='<span class="tag-dz">ДЗ</span>';
+            if(part.hw||tn||(part.files&&part.files.length)) html+='<span class="tag-dz">ДЗ</span>';
             if(tn) html+='<span class="tag-t">'+tk+'/'+tn+'</span>';
             html+='<div class="s-subj">'+(part.subject?esc(part.subject):'<span style="color:var(--text-secondary);font-weight:400">—</span>')+'</div>';
             html+='<div class="s-meta">';
@@ -1427,6 +1452,23 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
   }
   window._rmAdmin=function(name){data.admins=data.admins.filter(function(n){return n!==name;});save();render();toast("Админ убран");};
 
+  // Photos/files a teacher attached to the homework: photos as thumbnails,
+  // everything else as a download link. Opens in a new tab.
+  function filesHtml(files){
+    var imgs=files.filter(function(f){ return /^image\//.test(f.type||""); });
+    var docs=files.filter(function(f){ return !/^image\//.test(f.type||""); });
+    var h='<div class="hw-files">';
+    if(imgs.length){
+      h+='<div class="hw-imgs">';
+      imgs.forEach(function(f){ h+='<a href="'+esc(f.url)+'" target="_blank" rel="noopener"><img src="'+esc(f.url)+'" alt="'+esc(f.name||"фото")+'"></a>'; });
+      h+='</div>';
+    }
+    docs.forEach(function(f){
+      h+='<a class="hw-file" href="'+esc(f.url)+'" target="_blank" rel="noopener">📎 '+esc(f.name||"файл")+'</a>';
+    });
+    return h+'</div>';
+  }
+
   function openModal(){
     var slot=data.weeks[cur.w].days[cur.d].slots[cur.t];
     var part=slot.parts[activePart]||slot.parts[0];
@@ -1479,11 +1521,13 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
       } else {
         if(part.due) h+='<div class="info"><div class="l">Сдать до</div><div class="v">'+esc(part.due)+'</div></div>';
         h+='<h4 style="font-size:.9rem;color:var(--blue-dark);margin:10px 0 6px">Домашнее задание</h4>';
-        h+=part.hw?'<div class="hw">'+esc(part.hw)+'</div>':'<p style="color:var(--text-secondary);font-style:italic;margin-bottom:10px">Не задано</p>';
+        var pf=part.files||[];
+        h+=part.hw?'<div class="hw">'+esc(part.hw)+'</div>':(pf.length?'':'<p style="color:var(--text-secondary);font-style:italic;margin-bottom:10px">Не задано</p>');
+        if(pf.length) h+=filesHtml(pf);
         if(part.topics&&part.topics.length) h+='<div class="topics"><h4>Темы (можно забронировать)</h4><div id="tl"></div></div>';
       }
       // done button
-      if(part.hw||(part.topics&&part.topics.length)){
+      if(part.hw||(part.files&&part.files.length)||(part.topics&&part.topics.length)){
         var isDone=user.name && part.done && part.done[user.name];
         h+='<button class="done-btn'+(isDone?' done':'')+'" id="doneBtn">'+(isDone?'✓ Выполнено':'Отметить выполненным')+'</button>';
       }
@@ -1732,7 +1776,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     if(!text || !text.trim()){ toast("Вставь текст расписания"); return; }
     text=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
 
-    var dayMap={"пн":0,"понедельник":0,"вт":1,"вторник":1,"ср":2,"среда":2,"чт":3,"четверг":3,"пт":4,"пятница":4,"сб":5,"суббота":5};
+    var dayMap={"пн":0,"понедельник":0,"вт":1,"вторник":1,"ср":2,"среда":2,"чт":3,"четверг":3,"пт":4,"пятница":4,"сб":5,"суббота":5,"вс":6,"воскресенье":6};
     var currentWeek=0,currentDay=-1,columnIndex=0,filled=0,splitFilled=0;
 
     function isDateOnly(s){return /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(s);}

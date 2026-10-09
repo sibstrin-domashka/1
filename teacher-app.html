@@ -154,6 +154,17 @@ td.day.current-day{background:rgba(224,138,60,.16);border-left:3px solid #E08A3C
 td.slot.current-day{background:rgba(224,138,60,.08)}
 td.slot.current-slot{box-shadow:inset 0 0 0 2px #E08A3C}
 
+/* ---------- Attachments ---------- */
+.attach-btns{display:flex;gap:8px}
+.attach-btn{flex:1;padding:11px 8px;font-size:.8rem}
+.attach-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.attach-item{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:10px;padding:6px 8px}
+.attach-item img{width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0}
+.attach-item .ic{width:44px;height:44px;border-radius:8px;background:var(--bg-card-2);display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0}
+.attach-item .nm{flex:1;font-size:.82rem;word-break:break-all;line-height:1.3}
+.attach-item .nm small{display:block;color:var(--text-secondary);font-size:.7rem}
+.attach-item .rm{background:none;border:none;color:var(--danger);font-size:1.3rem;cursor:pointer;padding:0 6px}
+
 .toast{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
   background:var(--bg-card-2);color:var(--text-primary);padding:12px 18px;border-radius:12px;
@@ -201,6 +212,14 @@ td.slot.current-slot{box-shadow:inset 0 0 0 2px #E08A3C}
     <div class="modal-sub" id="hwModalSub">—</div>
     <label>Задание</label>
     <textarea id="hwDesc" placeholder="Что нужно сделать к следующему занятию..."></textarea>
+    <label>Фото и файлы</label>
+    <div class="attach-btns">
+      <button type="button" class="btn btn-outline attach-btn" id="addPhotoBtn">📷 Добавить фото</button>
+      <button type="button" class="btn btn-outline attach-btn" id="addFileBtn">📎 Добавить файл</button>
+    </div>
+    <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
+    <input type="file" id="fileInput" multiple style="display:none">
+    <div id="attachList" class="attach-list"></div>
     <label>Сдать до</label>
     <input type="date" id="hwDue">
     <div class="modal-actions">
@@ -225,15 +244,15 @@ if(typeof supabase === "undefined"){
 }
 var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-var DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
+var DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"];
 var MONTH_NAMES = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"];
-var DAY_SHORT = ["Пн","Вт","Ср","Чт","Пт","Сб"];
+var DAY_SHORT = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
 var TIMES = ["08:30–10:00","10:15–11:45","12:00–13:30","14:10–15:35","15:45–17:10","17:20–18:45","18:50–20:15","20:20–21:50"];
 var currentView = "day";
 
 var teacherProfile = null;   // { id, full_name }
 var lessonsCache = [];       // all schedule_slots joined with homework, for this teacher
-var dayViewAbsIndex = 0;     // 0..13 across the 2-week span
+var dayViewAbsIndex = 0;     // 0..13 across the 2-week span (week*7+day)
 var activeLessons = [];      // the merged card being edited (one row per group)
 
 function showToast(text){
@@ -276,8 +295,8 @@ document.getElementById("logoutBtn").onclick = async function(){
 /* ---------------- Day math ---------------- */
 
 function weekAndDayFromAbs(abs){
-  var week = abs < 6 ? 1 : 2;
-  var day = abs % 6; // 0..5 = Mon..Sat
+  var week = abs < 7 ? 1 : 2;
+  var day = abs % 7; // 0..6 = Mon..Sun
   return { week: week, day: day };
 }
 
@@ -286,19 +305,18 @@ function todayAbsIndex(){
   var now = new Date();
   var todayStr = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0") + "-" + String(now.getDate()).padStart(2,"0");
   for(var w = 1; w <= 2; w++){
-    for(var dd = 0; dd < 6; dd++){
+    for(var dd = 0; dd < 7; dd++){
       var dt = dateFor(w, dd);
       if(dt && isoLocal(dt) === todayStr) return weekDayToAbs(w, dd);
     }
   }
-  // Fallback: plain weekday math, Sunday -> Monday of current week.
+  // Fallback: plain weekday math.
   var jsDay = new Date().getDay(); // 0=Sun..6=Sat
-  var dayIndex = jsDay === 0 ? 0 : jsDay - 1;
-  if(dayIndex > 5) dayIndex = 5;
+  var dayIndex = (jsDay + 6) % 7;  // Mon=0..Sun=6
   return weekDayToAbs(1, dayIndex);
 }
 function weekDayToAbs(week, day){
-  return (week === 2 ? 6 : 0) + day;
+  return (week === 2 ? 7 : 0) + day;
 }
 
 function isoLocal(d){
@@ -344,7 +362,7 @@ async function loadLessons(){
   // across every group they teach, so no explicit teacher filter is needed.
   var res = await sb
     .from("schedule_slots")
-    .select("id,group_id,week_number,day_index,slot_index,lesson_date,subject,room,groups_label,groups(name),homework(id,description,due_date)")
+    .select("id,group_id,week_number,day_index,slot_index,lesson_date,subject,room,groups_label,groups(name),homework(id,description,due_date,attachments)")
     .order("week_number").order("day_index").order("slot_index");
 
   if(res.error){
@@ -378,7 +396,9 @@ function mergeLessons(list){
     c.hw = null;
     c.rows.forEach(function(r){
       var h = Array.isArray(r.homework) ? r.homework[0] : r.homework;
-      if(!c.hw && h && h.description && h.description.trim()) c.hw = h;
+      var hasText = h && h.description && h.description.trim();
+      var hasFiles = h && Array.isArray(h.attachments) && h.attachments.length;
+      if(!c.hw && (hasText || hasFiles)) c.hw = h;
     });
   });
   return out;
@@ -475,7 +495,7 @@ function renderWeeks(){
     }
     html += '</tr></thead><tbody>';
 
-    for(var d = 0; d < 6; d++){
+    for(var d = 0; d < 7; d++){
       var isToday = isCurWeek && todayWD.day === d;
       var dt = dateFor(w, d);
       html += '<tr><td class="day' + (isToday ? ' current-day' : '') + '">' + DAY_SHORT[d] +
@@ -528,12 +548,72 @@ function escapeHtml(s){
 
 /* ---------------- Homework modal ---------------- */
 
+// Files in the open homework window: already-saved ones ({name,url,type,size})
+// and newly picked ones ({file, preview}) that upload on "Сохранить".
+var HW_BUCKET = "homework-files";
+var MAX_FILE_MB = 20;
+var attachSaved = [];
+var attachNew = [];
+
+function fmtSize(b){
+  if(!b && b !== 0) return "";
+  return b < 1024*1024 ? Math.max(1, Math.round(b/1024)) + " КБ" : (b/1024/1024).toFixed(1) + " МБ";
+}
+function renderAttachList(){
+  var wrap = document.getElementById("attachList");
+  wrap.innerHTML = "";
+  function row(thumb, name, size, onRemove, link){
+    var el = document.createElement("div");
+    el.className = "attach-item";
+    el.innerHTML = thumb + '<div class="nm">' + escapeHtml(name) + '<small>' + escapeHtml(size) + '</small></div><button class="rm" title="Убрать">×</button>';
+    el.querySelector(".rm").onclick = onRemove;
+    if(link){ el.querySelector(".nm").style.cursor = "pointer"; el.querySelector(".nm").onclick = function(){ window.open(link, "_blank"); }; }
+    wrap.appendChild(el);
+  }
+  attachSaved.forEach(function(f, i){
+    var isImg = /^image\//.test(f.type || "");
+    row(isImg ? '<img src="' + escapeHtml(f.url) + '">' : '<div class="ic">📄</div>', f.name || "файл", fmtSize(f.size),
+      function(){ attachSaved.splice(i, 1); renderAttachList(); }, f.url);
+  });
+  attachNew.forEach(function(n, i){
+    var isImg = /^image\//.test(n.file.type || "");
+    row(isImg ? '<img src="' + n.preview + '">' : '<div class="ic">📄</div>', n.file.name, fmtSize(n.file.size) + " · ещё не сохранено",
+      function(){ if(n.preview) URL.revokeObjectURL(n.preview); attachNew.splice(i, 1); renderAttachList(); });
+  });
+}
+function addPickedFiles(list){
+  Array.prototype.forEach.call(list || [], function(f){
+    if(f.size > MAX_FILE_MB * 1024 * 1024){ showToast("«" + f.name + "» больше " + MAX_FILE_MB + " МБ — не добавлен"); return; }
+    attachNew.push({ file: f, preview: /^image\//.test(f.type) ? URL.createObjectURL(f) : "" });
+  });
+  renderAttachList();
+}
+document.getElementById("addPhotoBtn").onclick = function(){ document.getElementById("photoInput").click(); };
+document.getElementById("addFileBtn").onclick = function(){ document.getElementById("fileInput").click(); };
+document.getElementById("photoInput").onchange = function(){ addPickedFiles(this.files); this.value = ""; };
+document.getElementById("fileInput").onchange = function(){ addPickedFiles(this.files); this.value = ""; };
+
+// Storage keys must be plain ASCII, so the file gets a random key and keeps
+// its real (e.g. Russian) name only in the homework record.
+async function uploadOne(f){
+  var ext = (f.name.match(/\.([A-Za-z0-9]{1,8})$/) || [])[1] || "";
+  var key = teacherProfile.id + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 10) + (ext ? "." + ext.toLowerCase() : "");
+  var up = await sb.storage.from(HW_BUCKET).upload(key, f, { contentType: f.type || "application/octet-stream", upsert: false });
+  if(up.error) throw new Error("«" + f.name + "»: " + up.error.message);
+  var pub = sb.storage.from(HW_BUCKET).getPublicUrl(key);
+  return { name: f.name, url: pub.data.publicUrl, type: f.type || "", size: f.size, path: key };
+}
+
 function openHwModal(c){
   activeLessons = c.rows;
   document.getElementById("hwModalTitle").textContent = c.subject || "Домашнее задание";
   document.getElementById("hwModalSub").textContent = c.groupLabel + (c.room ? " · " + c.room : "");
   document.getElementById("hwDesc").value = c.hw && c.hw.description ? c.hw.description : "";
   document.getElementById("hwDue").value = c.hw && c.hw.due_date ? c.hw.due_date : "";
+  attachSaved = (c.hw && Array.isArray(c.hw.attachments)) ? c.hw.attachments.slice() : [];
+  attachNew.forEach(function(n){ if(n.preview) URL.revokeObjectURL(n.preview); });
+  attachNew = [];
+  renderAttachList();
   document.getElementById("hwOverlay").classList.add("active");
 }
 document.getElementById("hwCancelBtn").onclick = function(){
@@ -549,10 +629,18 @@ document.getElementById("hwSaveBtn").onclick = async function(){
   var due = document.getElementById("hwDue").value || null;
 
   try{
+    var uploaded = [];
+    for(var ui = 0; ui < attachNew.length; ui++){
+      btn.textContent = "Загружаем " + (ui + 1) + " из " + attachNew.length + "...";
+      uploaded.push(await uploadOne(attachNew[ui].file));
+    }
+    var attachments = attachSaved.concat(uploaded);
+    btn.textContent = "Сохраняем...";
+
     // One homework row per group's copy of the lesson (unique per slot),
     // so every group sees the same assignment.
     var rows = activeLessons.map(function(l){
-      return { schedule_slot_id: l.id, description: desc, due_date: due };
+      return { schedule_slot_id: l.id, description: desc, due_date: due, attachments: attachments };
     });
     var res = await sb.from("homework").upsert(rows, { onConflict: "schedule_slot_id" });
 
@@ -561,6 +649,8 @@ document.getElementById("hwSaveBtn").onclick = async function(){
       return;
     }
 
+    attachNew.forEach(function(n){ if(n.preview) URL.revokeObjectURL(n.preview); });
+    attachNew = [];
     document.getElementById("hwOverlay").classList.remove("active");
     showToast(rows.length > 1 ? "Задание сохранено для " + rows.length + " групп" : "Задание сохранено");
     await loadLessons();
