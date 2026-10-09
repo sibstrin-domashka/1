@@ -113,7 +113,12 @@ if(typeof supabase === "undefined"){
   });
   throw new Error("supabase js failed to load");
 }
-var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Teacher login is stored under its OWN key, so being signed in as a
+// teacher never replaces a student's login in the same browser (and the
+// other way round) - both pages can be open at once.
+var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storageKey: "domashka-teacher-auth", persistSession: true, autoRefreshToken: true }
+});
 
 function showAuthMsg(text, ok){
   var m = document.getElementById("authMsg");

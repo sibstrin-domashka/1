@@ -620,6 +620,12 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     if(!slotIds.length) return;
 
     var hwRes=await sb.from("homework").select("id,schedule_slot_id,description,due_date,attachments").in("schedule_slot_id", slotIds);
+    if(hwRes.error){
+      // e.g. the attachments column isn't there yet - still show the text.
+      console.warn("[sync] homework with attachments failed, retrying without:", hwRes.error.message);
+      hwRes=await sb.from("homework").select("id,schedule_slot_id,description,due_date").in("schedule_slot_id", slotIds);
+      if(hwRes.error) console.error("[sync] homework fetch failed:", hwRes.error);
+    }
     var hwByScheduleSlot={};
     (hwRes.data||[]).forEach(function(h){ hwByScheduleSlot[h.schedule_slot_id]=h; });
 
@@ -698,7 +704,16 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
       if(!myGroupId){
         var prof=await sb.from("profiles").select("group_id, full_name, is_owner").eq("id", session.user.id).maybeSingle();
         if(prof.error){ console.error("[sync] profile fetch error:", prof.error); throw new Error("профиль: "+prof.error.message); }
-        if(!prof.data || !prof.data.group_id){
+        if(!prof.data){
+          // Signed in, but not as a student (e.g. an old teacher login left
+          // in this browser). Drop it and go to the student login page.
+          console.warn("[sync] session has no student profile - signing out and going to auth.html");
+          toast("Это не профиль студента — войди заново");
+          await sb.auth.signOut();
+          setTimeout(function(){ window.location.href="auth.html"; }, 1200);
+          return;
+        }
+        if(!prof.data.group_id){
           console.warn("[sync] profile has no group_id - was join_by_roster ever run for this user?", prof.data);
           toast("Профиль ещё не привязан к группе");
           return;

@@ -242,7 +242,12 @@ if(typeof supabase === "undefined"){
   document.getElementById("bootMsg").textContent = "Не удалось загрузить библиотеку Supabase. Проверь интернет и обнови страницу (Ctrl+F5).";
   throw new Error("supabase js failed to load");
 }
-var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Teacher login is stored under its OWN key, so being signed in as a
+// teacher never replaces a student's login in the same browser (and the
+// other way round) - both pages can be open at once.
+var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storageKey: "domashka-teacher-auth", persistSession: true, autoRefreshToken: true }
+});
 
 var DAY_NAMES = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"];
 var MONTH_NAMES = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"];
