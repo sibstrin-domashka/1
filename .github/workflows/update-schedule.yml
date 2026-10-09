@@ -2,11 +2,14 @@ name: Update schedule
 
 on:
   schedule:
+    # 03:00 UTC = ~10:00 Novosibirsk.
     - cron: "0 3 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
 
 jobs:
   scrape:
+    # Runs on YOUR own computer (a self-hosted runner), not GitHub's cloud
+    # servers - the target site blocks GitHub's/Azure's datacenter IPs.
     runs-on: self-hosted
 
     env:
@@ -24,17 +27,26 @@ jobs:
       - name: Install Puppeteer and stealth plugin
         run: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
 
+      # Our group, in full (all teachers, subgroups) - the students' schedule.
       - name: Group 128
         continue-on-error: true
         env:
           TIMETABLE_GROUP_NAME: "128"
         run: node scripts/scrape-schedule.js
 
+      - name: Group 124
+        continue-on-error: true
+        env:
+          TIMETABLE_GROUP_NAME: "124"
+        run: node scripts/scrape-schedule.js
+
+      # Each app teacher's OWN timetable page - one page per teacher, every
+      # group they teach at once. Groups 128 and 124 are skipped (done in full above).
       - name: Teachers' own timetables
         continue-on-error: true
         env:
           LECTURER_APP_MODE: "1"
-          SKIP_GROUPS: "128"
+          SKIP_GROUPS: "128,124"
         run: node scripts/scrape-lecturers.js
 
       - name: Upload debug pages
