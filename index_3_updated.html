@@ -244,6 +244,8 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
 .topic{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--accent-soft);border-radius:var(--radius-sm);margin-bottom:6px}
 .topic.ok{background:rgba(159,216,179,.18)}
 .topic .tt{flex:1;font-weight:500;font-size:.86rem}
+.claim-box{display:flex;gap:8px;margin-top:4px}
+.claim-box input{flex:1;padding:9px 11px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg-elevated);color:var(--text-primary);font-size:.9rem}
 .topic .tw{font-size:.74rem;color:var(--success);font-weight:600}
 .add-t{display:flex;gap:6px;margin-top:6px}
 .add-t input{flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:.9rem;background:var(--bg-elevated);color:var(--text-primary)}
@@ -632,12 +634,15 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     var hwIds=(hwRes.data||[]).map(function(h){ return h.id; });
     var topicsByHw={};
     if(hwIds.length){
-      var topicsRes=await sb.from("homework_topics").select("id,homework_id,title,booked_by,profiles(full_name)").in("homework_id", hwIds);
+      var topicsRes=await sb.from("homework_topics").select("id,homework_id,title,booked_by,booked_name,profiles(full_name)").in("homework_id", hwIds);
+      if(topicsRes.error){
+        topicsRes=await sb.from("homework_topics").select("id,homework_id,title,booked_by,profiles(full_name)").in("homework_id", hwIds);
+      }
       (topicsRes.data||[]).forEach(function(t){
         if(!topicsByHw[t.homework_id]) topicsByHw[t.homework_id]=[];
         topicsByHw[t.homework_id].push({
           title:t.title,
-          by:t.booked_by ? ((t.profiles&&t.profiles.full_name)||"кто-то") : "",
+          by:t.booked_by ? ((t.profiles&&t.profiles.full_name)||t.booked_name||"кто-то") : "",
           _id:t.id, _bookedBy:t.booked_by
         });
       });
@@ -1539,7 +1544,12 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
         var pf=part.files||[];
         h+=part.hw?'<div class="hw">'+esc(part.hw)+'</div>':(pf.length?'':'<p style="color:var(--text-secondary);font-style:italic;margin-bottom:10px">Не задано</p>');
         if(pf.length) h+=filesHtml(pf);
-        if(part.topics&&part.topics.length) h+='<div class="topics"><h4>Темы (можно забронировать)</h4><div id="tl"></div></div>';
+        if(part.hw||(part.files&&part.files.length)||(part.topics&&part.topics.length)){
+          h+='<div class="topics"><h4>Темы</h4><div id="tl"></div>';
+          h+='<div id="claimBox" class="claim-box" style="display:none"><input id="claimInp" placeholder="Номер темы или название" autocomplete="off"><button class="btn-blue btn-sm" id="claimGo">Забрать</button></div>';
+          h+='<button class="btn-outline btn-sm" id="claimOpen" style="width:100%;margin-top:4px">✋ Забрать тему</button>';
+          h+='</div>';
+        }
       }
       // done button
       if(part.hw||(part.files&&part.files.length)||(part.topics&&part.topics.length)){
@@ -1550,6 +1560,16 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     document.getElementById("mBody").innerHTML=h;
     document.getElementById("ov1").classList.add("open");
     drawTopics(part);
+    var claimOpen=document.getElementById("claimOpen");
+    if(claimOpen){
+      claimOpen.onclick=function(){
+        document.getElementById("claimBox").style.display="flex";
+        claimOpen.style.display="none";
+        document.getElementById("claimInp").focus();
+      };
+      document.getElementById("claimGo").onclick=claimTopic;
+      document.getElementById("claimInp").onkeydown=function(e){ if(e.key==="Enter") claimTopic(); };
+    }
     if(canEditSchedule){
       document.getElementById("sv").onclick=saveSlot;
       document.getElementById("cl").onclick=clearSlot;
@@ -1590,7 +1610,8 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     var list=document.getElementById("tl");
     if(!list) return;
     if(!part.topics||!part.topics.length){
-      list.innerHTML=myIsOwner?'<p style="color:var(--text-secondary);font-size:.84rem">Тем нет</p>':'';
+      list.innerHTML=myIsOwner?'<p style="color:var(--text-secondary);font-size:.84rem">Тем нет</p>':
+        '<p style="color:var(--text-secondary);font-size:.84rem;margin-bottom:6px">Пока никто не забрал тему.</p>';
       return;
     }
     var h="";
@@ -1600,6 +1621,7 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
       if(t.by){
         h+='<span class="tw">✓ '+esc(t.by)+'</span>';
         if(myIsOwner) h+='<button class="btn-outline btn-sm" onclick="window._un('+i+')">Снять</button>';
+        else if(myUserId && t._bookedBy===myUserId) h+='<button class="btn-outline btn-sm" onclick="window._drop('+i+')">Отказаться</button>';
       } else {
         if(myIsOwner) h+='<button class="btn-danger btn-sm" onclick="window._rm('+i+')">×</button>';
         else h+='<button class="btn-blue btn-sm" onclick="window._cl('+i+')">Забрать</button>';
@@ -1679,6 +1701,81 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
       }
     }
   }
+  // "Забрать тему": a student types a topic number ("3" -> "Тема 3") or a
+  // title. Everyone in the group then sees who has it. One topic per
+  // student per assignment - taking a new one gives up the old one.
+  function topicKey(t){ return String(t||"").trim().toLowerCase().replace(/\s+/g," "); }
+  async function refreshTopics(hid, part){
+    var r=await sb.from("homework_topics").select("id,title,booked_by,booked_name,profiles(full_name)").eq("homework_id", hid);
+    if(r.error) r=await sb.from("homework_topics").select("id,title,booked_by,profiles(full_name)").eq("homework_id", hid);
+    if(r.error) return;
+    part.topics=(r.data||[]).map(function(t){
+      return {title:t.title, by:t.booked_by?((t.profiles&&t.profiles.full_name)||t.booked_name||"кто-то"):"", _id:t.id, _bookedBy:t.booked_by};
+    });
+    save();
+  }
+  async function claimTopic(){
+    if(!sb || !myUserId){ toast("Сначала войди"); return; }
+    var inp=document.getElementById("claimInp");
+    var raw=inp.value.trim();
+    if(!raw){ inp.focus(); return; }
+    var title=/^\d{1,3}$/.test(raw) ? "Тема "+raw : raw;
+    var w0=cur.w, d0=cur.d, t0=cur.t, p0=activePart;
+    var part=data.weeks[w0].days[d0].slots[t0].parts[p0];
+    var btn=document.getElementById("claimGo"); btn.disabled=true;
+    try{
+      var hid=await ensureHomeworkRow(w0,d0,t0,p0);
+      if(!hid){ toast("Не получилось — обнови страницу"); return; }
+      await refreshTopics(hid, part);
+      var same=(part.topics||[]).filter(function(t){ return topicKey(t.title)===topicKey(title); })[0];
+      if(same && same.by && same._bookedBy!==myUserId){ toast("«"+same.title+"» уже у: "+same.by); return; }
+      if(same && same._bookedBy===myUserId){ toast("Эта тема уже твоя"); return; }
+      var myName=user.name||"";
+      // Give up my previous topic in this assignment.
+      var mine=(part.topics||[]).filter(function(t){ return t._bookedBy===myUserId; });
+      for(var i=0;i<mine.length;i++){
+        var del=await sb.from("homework_topics").delete().eq("id", mine[i]._id).select("id");
+        if(del.error || !del.data || !del.data.length) await sb.from("homework_topics").update({booked_by:null, booked_name:null}).eq("id", mine[i]._id);
+      }
+      var res;
+      if(same && !same.by){
+        res=await sb.from("homework_topics").update({booked_by:myUserId, booked_name:myName}).eq("id", same._id).is("booked_by", null).select("id");
+        if(!res.error && (!res.data || !res.data.length)) res={error:{code:"23505"}};
+      } else {
+        res=await sb.from("homework_topics").insert({homework_id:hid, title:title, booked_by:myUserId, booked_name:myName}).select("id");
+        if(res.error && /booked_name|created_by/.test(res.error.message||"")){
+          res=await sb.from("homework_topics").insert({homework_id:hid, title:title, booked_by:myUserId}).select("id");
+        }
+      }
+      if(res.error){
+        toast(res.error.code==="23505" ? "Эту тему только что забрали" : "Не получилось: "+res.error.message);
+      } else {
+        toast("Тема твоя: "+title);
+      }
+      await refreshTopics(hid, part);
+      if(cur && cur.w===w0 && cur.d===d0 && cur.t===t0){
+        drawTopics(part);
+        inp.value="";
+        document.getElementById("claimBox").style.display="none";
+        document.getElementById("claimOpen").style.display="";
+      }
+      render();
+    } finally { btn.disabled=false; }
+  }
+  window._drop=async function(i){
+    var p=data.weeks[cur.w].days[cur.d].slots[cur.t].parts[activePart];
+    var t=p.topics[i];
+    if(!t || !sb) return;
+    var del=await sb.from("homework_topics").delete().eq("id", t._id).select("id");
+    if(del.error || !del.data || !del.data.length){
+      await sb.from("homework_topics").update({booked_by:null, booked_name:null}).eq("id", t._id);
+      t.by=""; t._bookedBy=null;
+    } else {
+      p.topics.splice(i,1);
+    }
+    save(); drawTopics(p); render(); toast("Ты отказался от темы");
+  };
+
   window._rm=async function(i){
     var p=data.weeks[cur.w].days[cur.d].slots[cur.t].parts[activePart];
     var topic=p.topics[i];
@@ -1691,7 +1788,9 @@ td.slot.current-slot,td.slot.has.current-slot{background:rgba(224,138,60,.20);bo
     if(p.topics[i].by){toast("Уже занято");return;}
     p.topics[i].by=user.name; save(); drawTopics(p); render(); toast("Забронировано");
     if(sb && myUserId && p.topics[i]._id){
-      await sb.from("homework_topics").update({booked_by:myUserId}).eq("id",p.topics[i]._id).is("booked_by",null);
+      p.topics[i]._bookedBy=myUserId; save();
+      var up=await sb.from("homework_topics").update({booked_by:myUserId, booked_name:user.name||""}).eq("id",p.topics[i]._id).is("booked_by",null);
+      if(up.error) await sb.from("homework_topics").update({booked_by:myUserId}).eq("id",p.topics[i]._id).is("booked_by",null);
     }
   };
   window._un=async function(i){

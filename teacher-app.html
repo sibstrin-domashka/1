@@ -154,6 +154,11 @@ td.day.current-day{background:rgba(224,138,60,.16);border-left:3px solid #E08A3C
 td.slot.current-day{background:rgba(224,138,60,.08)}
 td.slot.current-slot{box-shadow:inset 0 0 0 2px #E08A3C}
 
+/* ---------- Topics students took ---------- */
+.topics-list{display:flex;flex-direction:column;gap:6px}
+.topic-row{display:flex;justify-content:space-between;gap:10px;background:rgba(79,209,165,.08);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:.85rem}
+.topic-row .who{color:var(--accent);font-weight:600;text-align:right}
+
 /* ---------- Attachments ---------- */
 .attach-btns{display:flex;gap:8px}
 .attach-btn{flex:1;padding:11px 8px;font-size:.8rem}
@@ -220,6 +225,10 @@ td.slot.current-slot{box-shadow:inset 0 0 0 2px #E08A3C}
     <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
     <input type="file" id="fileInput" multiple style="display:none">
     <div id="attachList" class="attach-list"></div>
+    <div id="topicsWrap" style="display:none">
+      <label>Кто какую тему забрал</label>
+      <div id="topicsList" class="topics-list"></div>
+    </div>
     <label>Сдать до</label>
     <input type="date" id="hwDue">
     <div class="modal-actions">
@@ -619,7 +628,37 @@ function openHwModal(c){
   attachNew.forEach(function(n){ if(n.preview) URL.revokeObjectURL(n.preview); });
   attachNew = [];
   renderAttachList();
+  loadTakenTopics(c);
   document.getElementById("hwOverlay").classList.add("active");
+}
+
+// Students claim topics themselves ("Забрать тему" on their page); the
+// teacher just sees the result here. Read-only.
+async function loadTakenTopics(c){
+  var wrap = document.getElementById("topicsWrap"), list = document.getElementById("topicsList");
+  wrap.style.display = "none"; list.innerHTML = "";
+  var groupByHw = {}, ids = [];
+  c.rows.forEach(function(r){
+    var h = Array.isArray(r.homework) ? r.homework[0] : r.homework;
+    if(h && h.id){ ids.push(h.id); groupByHw[h.id] = (r.groups && r.groups.name) || ""; }
+  });
+  if(!ids.length) return;
+  try{
+    var res = await sb.from("homework_topics").select("homework_id,title,booked_name,booked_by").in("homework_id", ids);
+    if(res.error || !res.data) return;
+    var taken = res.data.filter(function(t){ return t.booked_by; })
+      .sort(function(a, b){ return String(a.title).localeCompare(String(b.title), "ru", { numeric: true }); });
+    if(!taken.length) return;
+    var multi = ids.length > 1;
+    taken.forEach(function(t){
+      var el = document.createElement("div");
+      el.className = "topic-row";
+      el.innerHTML = '<span>' + escapeHtml(t.title) + '</span><span class="who">' + escapeHtml(t.booked_name || "студент") +
+        (multi && groupByHw[t.homework_id] ? ' · ' + escapeHtml(groupByHw[t.homework_id]) + ' гр.' : '') + '</span>';
+      list.appendChild(el);
+    });
+    wrap.style.display = "block";
+  }catch(e){}
 }
 document.getElementById("hwCancelBtn").onclick = function(){
   document.getElementById("hwOverlay").classList.remove("active");

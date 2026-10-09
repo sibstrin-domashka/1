@@ -132,7 +132,10 @@ input:focus,select:focus{outline:none;border-color:var(--blue)}
 
   async function loadGroups(){
     var sel = document.getElementById("groupSelect");
-    var res = await sb.from("groups").select("id,name").order("name");
+    // Only groups that are open for sign-up (groups.listed). Falls back to
+    // all groups if that column doesn't exist yet.
+    var res = await sb.from("groups").select("id,name").eq("listed", true).order("name");
+    if(res.error) res = await sb.from("groups").select("id,name").order("name");
     if(res.error || !res.data || !res.data.length){
       sel.innerHTML = '<option value="">Групп пока нет</option>';
       return;
